@@ -5,6 +5,18 @@ import { useRouter } from "next/navigation";
 
 type Category = { id: string; name: string };
 
+type TxFlag = "WORTH_IT" | "UNEXPECTED" | "REVIEW_LATER";
+
+const FLAG_LABELS: Record<TxFlag, string> = {
+  WORTH_IT: "Felt worth it",
+  UNEXPECTED: "Unexpected",
+  REVIEW_LATER: "Review later",
+};
+
+function toggleFlag(list: TxFlag[], flag: TxFlag) {
+  return list.includes(flag) ? list.filter((f) => f !== flag) : [...list, flag];
+}
+
 function parseAmountToCents(input: string): number | null {
   const cleaned = input.replace(/[$,\s]/g, "");
   if (!cleaned) return null;
@@ -42,6 +54,10 @@ export function TransactionRow(props: {
   formattedAmount: string;
   categoryId?: string | null;
   categoryName?: string | null;
+
+  // Phase 1 additions
+  notes?: string | null;
+  flags?: TxFlag[] | null;
 }) {
   const router = useRouter();
 
@@ -56,12 +72,26 @@ export function TransactionRow(props: {
   // Categories state (loaded only when editing)
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(false);
-  const [categoriesError, setCategoriesError] = React.useState<string | null>(null);
+  const [categoriesError, setCategoriesError] = React.useState<string | null>(
+    null
+  );
 
   const [desc, setDesc] = React.useState(props.description);
-  const [amount, setAmount] = React.useState(String((props.amountCents / 100).toFixed(2)));
+  const [amount, setAmount] = React.useState(
+    String((props.amountCents / 100).toFixed(2))
+  );
   const [date, setDate] = React.useState(isoToDateInputValue(props.dateISO));
-  const [categoryId, setCategoryId] = React.useState<string>(props.categoryId ?? "");
+  const [categoryId, setCategoryId] = React.useState<string>(
+    props.categoryId ?? ""
+  );
+
+  // Notes + flags local state
+  const [notes, setNotes] = React.useState<string>(props.notes ?? "");
+  const [flags, setFlags] = React.useState<TxFlag[]>(props.flags ?? []);
+
+  const [showDetails, setShowDetails] = React.useState<boolean>(
+    !!(props.notes || (props.flags?.length ?? 0) > 0)
+  );
 
   const descInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -95,9 +125,20 @@ export function TransactionRow(props: {
       setAmount(String((props.amountCents / 100).toFixed(2)));
       setDate(isoToDateInputValue(props.dateISO));
       setCategoryId(props.categoryId ?? "");
+      setNotes(props.notes ?? "");
+      setFlags(props.flags ?? []);
+      setShowDetails(!!(props.notes || (props.flags?.length ?? 0) > 0));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.description, props.amountCents, props.dateISO, props.categoryId, isEditing]);
+  }, [
+    props.description,
+    props.amountCents,
+    props.dateISO,
+    props.categoryId,
+    props.notes,
+    props.flags,
+    isEditing,
+  ]);
 
   // Autofocus + load categories when editing
   React.useEffect(() => {
@@ -119,9 +160,12 @@ export function TransactionRow(props: {
     setError(null);
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/finance/transactions?id=${encodeURIComponent(props.id)}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/finance/transactions?id=${encodeURIComponent(props.id)}`,
+        {
+          method: "DELETE",
+        }
+      );
 
       if (!res.ok) {
         setError(await readErrorMessage(res));
@@ -176,16 +220,21 @@ export function TransactionRow(props: {
 
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/finance/transactions?id=${encodeURIComponent(props.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description,
-          amountCents,
-          date,
-          categoryId: categoryId || null,
-        }),
-      });
+      const res = await fetch(
+        `/api/finance/transactions?id=${encodeURIComponent(props.id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            description,
+            amountCents,
+            date,
+            categoryId: categoryId || null,
+            notes: notes.trim() ? notes.trim() : null,
+            flags,
+          }),
+        }
+      );
 
       if (!res.ok) {
         setError(await readErrorMessage(res));
@@ -217,13 +266,32 @@ export function TransactionRow(props: {
     }
   };
 
+  const prettyFlags = flags.filter(Boolean);
+
   // ---------- VIEW MODE ----------
   if (!isEditing) {
+    const hasDetails = !!(props.notes || (props.flags?.length ?? 0) > 0);
+    const viewFlags = (props.flags ?? []) as TxFlag[];
+
     return (
       <div style={{ display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "baseline" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 14,
+            alignItems: "baseline",
+          }}
+        >
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
               <div
                 style={{
                   fontWeight: 650,
@@ -237,20 +305,57 @@ export function TransactionRow(props: {
                 {props.description}
               </div>
 
-              {props.categoryName ? <span className="pill pill-accent">{props.categoryName}</span> : null}
+              {props.categoryName ? (
+                <span className="pill pill-accent">{props.categoryName}</span>
+              ) : null}
             </div>
 
             <div className="subtle" style={{ marginTop: 2 }}>
               {props.formattedDate}
             </div>
 
+            {/* Flags (subtle) */}
+            {hasDetails && showDetails && viewFlags.length ? (
+              <div
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginTop: 8,
+                }}
+              >
+                {viewFlags.map((f) => (
+                  <span key={f} className="pill">
+                    {FLAG_LABELS[f] ?? f}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {/* Notes (subtle) */}
+            {hasDetails && showDetails && props.notes ? (
+              <div className="note-block" style={{ marginTop: 8 }}>
+                {props.notes}
+              </div>
+            ) : null}
+
             {error ? (
-              <div style={{ marginTop: 8, color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div>
+              <div
+                style={{
+                  marginTop: 8,
+                  color: "rgb(var(--danger))",
+                  fontSize: 13,
+                }}
+              >
+                {error}
+              </div>
             ) : null}
           </div>
 
           <div
-            className={`amount ${amountIsPositive ? "amount-positive" : "amount-negative"}`}
+            className={`amount ${
+              amountIsPositive ? "amount-positive" : "amount-negative"
+            }`}
             style={{ fontWeight: 750, whiteSpace: "nowrap" }}
             title={props.formattedAmount}
           >
@@ -259,7 +364,14 @@ export function TransactionRow(props: {
         </div>
 
         {/* Actions */}
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <button
             type="button"
             className="btn btn-ghost"
@@ -276,6 +388,18 @@ export function TransactionRow(props: {
           >
             Edit
           </button>
+
+          {/* Optional: tiny affordance to show/hide details when there are any */}
+          {hasDetails ? (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setShowDetails((v) => !v)}
+              disabled={isSaving || pendingDelete}
+            >
+              {showDetails ? "Hide details" : "Show details"}
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -302,7 +426,12 @@ export function TransactionRow(props: {
               <span className="subtle" style={{ color: "rgb(var(--danger))" }}>
                 Deleted. Finalizing in 5s…
               </span>
-              <button type="button" className="btn btn-primary" onClick={onUndoDelete} disabled={isSaving}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={onUndoDelete}
+                disabled={isSaving}
+              >
                 Undo
               </button>
             </div>
@@ -337,7 +466,9 @@ export function TransactionRow(props: {
           />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+        >
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Amount</label>
             <input
@@ -370,7 +501,9 @@ export function TransactionRow(props: {
             disabled={isSaving || isLoadingCategories}
             style={{ maxWidth: 360 }}
           >
-            <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
+            <option value="">
+              {isLoadingCategories ? "Loading…" : "Uncategorized"}
+            </option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -378,22 +511,94 @@ export function TransactionRow(props: {
             ))}
           </select>
           {categoriesError ? (
-            <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>{categoriesError}</span>
+            <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>
+              {categoriesError}
+            </span>
           ) : null}
         </div>
 
-        {error ? <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div> : null}
+        {/* Notes + flags */}
+        <div
+          style={{
+            border: "1px solid rgb(var(--border))",
+            borderRadius: 16,
+            padding: 12,
+            background: "rgba(255,255,255,0.55)",
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="subtle">Note (optional)</label>
+            <textarea
+              className="input"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              disabled={isSaving}
+              rows={3}
+              placeholder="Add a little context…"
+              style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gap: 8 }}>
+            <div className="subtle">Gentle flags (optional)</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
+                const active = prettyFlags.includes(f);
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    className={`pill ${active ? "pill-accent" : ""}`}
+                    onClick={() => setFlags((prev) => toggleFlag(prev, f))}
+                    disabled={isSaving}
+                    style={{
+                      cursor: isSaving ? "not-allowed" : "pointer",
+                      opacity: isSaving ? 0.6 : 1,
+                    }}
+                  >
+                    {FLAG_LABELS[f]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {error ? (
+          <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
+            {error}
+          </div>
+        ) : null}
 
         <div className="subtle">
           Tip: <b>Enter</b> to save • <b>Esc</b> to cancel
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-primary" onClick={onSave} disabled={isSaving}>
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={onSave}
+          disabled={isSaving}
+        >
           {isSaving ? "Saving..." : "Save"}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={isSaving}>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={onCancel}
+          disabled={isSaving}
+        >
           Cancel
         </button>
       </div>

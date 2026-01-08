@@ -176,6 +176,24 @@ a:hover {
   background: rgb(var(--surface));
 }
 
+/* ✅ New: textarea baseline (notes) */
+textarea.input {
+  min-height: 72px;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+/* ✅ New: soften note blocks + keep consistent spacing */
+.note-block {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgb(var(--border));
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -249,4 +267,20 @@ a:hover {
   background: rgba(var(--accent), 0.10);
   border-color: rgba(var(--accent), 0.25);
   color: rgb(var(--accent));
+}
+
+/* ✅ New: pill buttons (for toggle flags) */
+button.pill {
+  cursor: pointer;
+}
+button.pill:hover {
+  filter: brightness(0.98);
+}
+button.pill:active {
+  transform: translateY(1px);
+}
+button.pill:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(var(--accent), 0.12);
+  border-color: rgba(var(--accent), 0.45);
 }

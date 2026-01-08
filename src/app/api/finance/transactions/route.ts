@@ -66,10 +66,37 @@ async function assertCategoryBelongsToUser(userId: string, categoryId: string) {
     select: { id: true },
   });
 
-  if (!exists) {
-    return false;
+  return !!exists;
+}
+
+/**
+ * Flags validation
+ * Keep this list in sync with prisma enum TransactionFlag
+ */
+const ALLOWED_FLAGS = new Set(["WORTH_IT", "UNEXPECTED", "REVIEW_LATER"]);
+
+function parseFlags(input: unknown) {
+  // Accept: undefined (no-op), null (clear), [] or ["WORTH_IT", ...]
+  if (input === undefined) return { ok: true as const, value: undefined as string[] | undefined };
+  if (input === null) return { ok: true as const, value: [] as string[] };
+
+  if (!Array.isArray(input)) {
+    return { ok: false as const, error: "flags must be an array of strings" };
   }
-  return true;
+
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "string") {
+      return { ok: false as const, error: "flags must be an array of strings" };
+    }
+    const v = raw.trim().toUpperCase();
+    if (!ALLOWED_FLAGS.has(v)) {
+      return { ok: false as const, error: `Invalid flag: ${raw}` };
+    }
+    if (!out.includes(v)) out.push(v);
+  }
+
+  return { ok: true as const, value: out };
 }
 
 export async function GET(req: Request) {
@@ -129,6 +156,10 @@ export async function POST(req: Request) {
   const description = String(body?.description ?? "").trim();
   const notes = body?.notes ? String(body.notes) : null;
 
+  const parsedFlags = parseFlags(body?.flags);
+  if (!parsedFlags.ok) return json({ error: parsedFlags.error }, { status: 400 });
+  const flags = parsedFlags.value ?? [];
+
   // allow null/undefined/"" to mean "no category"
   const categoryIdRaw = body?.categoryId;
   const categoryId =
@@ -170,6 +201,7 @@ export async function POST(req: Request) {
       amountCents,
       description,
       notes,
+      flags,
       categoryId,
     },
     include: { category: true },
@@ -181,7 +213,7 @@ export async function POST(req: Request) {
 /**
  * PATCH /api/finance/transactions?id=TRANSACTION_ID
  * Body supports partial updates:
- * { description?, amountCents?, date?, notes?, categoryId? (string|null) }
+ * { description?, amountCents?, date?, notes?, flags?, categoryId? (string|null) }
  */
 export async function PATCH(req: Request) {
   const userId = await getAuthedUserId();
@@ -236,6 +268,12 @@ export async function PATCH(req: Request) {
 
   if (body?.notes !== undefined) {
     data.notes = body.notes === null || body.notes === "" ? null : String(body.notes);
+  }
+
+  if (body?.flags !== undefined) {
+    const parsed = parseFlags(body.flags);
+    if (!parsed.ok) return json({ error: parsed.error }, { status: 400 });
+    data.flags = parsed.value ?? [];
   }
 
   if (body?.categoryId !== undefined) {

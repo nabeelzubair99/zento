@@ -28,6 +28,18 @@ async function readApiError(res: Response) {
 
 type Category = { id: string; name: string };
 
+type TxFlag = "WORTH_IT" | "UNEXPECTED" | "REVIEW_LATER";
+
+const FLAG_LABELS: Record<TxFlag, string> = {
+  WORTH_IT: "Felt worth it",
+  UNEXPECTED: "Unexpected",
+  REVIEW_LATER: "Review later",
+};
+
+function toggleFlag(list: TxFlag[], flag: TxFlag) {
+  return list.includes(flag) ? list.filter((f) => f !== flag) : [...list, flag];
+}
+
 export function AddTransactionForm() {
   const router = useRouter();
 
@@ -37,6 +49,11 @@ export function AddTransactionForm() {
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(true);
   const [categoryId, setCategoryId] = React.useState<string>(""); // "" = Uncategorized
+
+  // Notes + flags (Phase 1)
+  const [showDetails, setShowDetails] = React.useState(false);
+  const [notes, setNotes] = React.useState<string>("");
+  const [flags, setFlags] = React.useState<TxFlag[]>([]);
 
   // Create category UI
   const [showCreateCategory, setShowCreateCategory] = React.useState(false);
@@ -155,6 +172,8 @@ export function AddTransactionForm() {
           amountCents,
           date,
           categoryId: categoryId || null,
+          notes: notes.trim() ? notes.trim() : null,
+          flags,
         }),
       });
 
@@ -166,6 +185,12 @@ export function AddTransactionForm() {
       form.reset();
       setCategoryId("");
       setShowCreateCategory(false);
+
+      // reset Phase 1 extras
+      setShowDetails(false);
+      setNotes("");
+      setFlags([]);
+
       router.refresh();
     } catch {
       setError("Something went wrong while saving. Try again.");
@@ -253,19 +278,81 @@ export function AddTransactionForm() {
             ))}
           </select>
 
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              setCategoryError(null);
-              setShowCreateCategory((v) => !v);
-            }}
-            disabled={disabledAny}
-            style={{ justifySelf: "flex-start" }}
-          >
-            {showCreateCategory ? "Hide category creator" : "Create a new category"}
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setCategoryError(null);
+                setShowCreateCategory((v) => !v);
+              }}
+              disabled={disabledAny}
+              style={{ justifySelf: "flex-start" }}
+            >
+              {showCreateCategory ? "Hide category creator" : "Create a new category"}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setShowDetails((v) => !v)}
+              disabled={disabledAny}
+            >
+              {showDetails ? "Hide notes & flags" : "Add notes & flags"}
+            </button>
+          </div>
         </div>
+
+        {/* Notes + flags (secondary panel) */}
+        {showDetails ? (
+          <div
+            style={{
+              border: "1px solid rgb(var(--border))",
+              borderRadius: 16,
+              padding: 14,
+              background: "rgba(255,255,255,0.55)",
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Note (optional)</label>
+              <textarea
+                className="input"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={disabledAny}
+                rows={3}
+                placeholder="Add a little context… (what was this for, how did it feel?)"
+                style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="subtle">Gentle flags (optional)</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
+                  const active = flags.includes(f);
+                  return (
+                    <button
+                      key={f}
+                      type="button"
+                      className={`pill ${active ? "pill-accent" : ""}`}
+                      onClick={() => setFlags((prev) => toggleFlag(prev, f))}
+                      disabled={disabledAny}
+                      style={{
+                        cursor: disabledAny ? "not-allowed" : "pointer",
+                        opacity: disabledAny ? 0.6 : 1,
+                      }}
+                    >
+                      {FLAG_LABELS[f]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {/* Create category (secondary panel) */}
         {showCreateCategory ? (

@@ -20,6 +20,12 @@ function formatDate(d: Date) {
   }).format(d);
 }
 
+function formatMonthLabel(yyyyMm: string) {
+  const [y, m] = yyyyMm.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(d);
+}
+
 function currentMonthYYYYMM() {
   const d = new Date();
   const y = d.getFullYear();
@@ -43,6 +49,18 @@ function buildQueryString(params: Record<string, string | undefined>) {
   }
   const s = sp.toString();
   return s ? `?${s}` : "";
+}
+
+function buildSearchWhere(q: string) {
+  const query = q.trim();
+  if (!query) return {};
+  // Search description OR notes (calm: users often remember context, not merchant text)
+  return {
+    OR: [
+      { description: { contains: query, mode: "insensitive" as const } },
+      { notes: { contains: query, mode: "insensitive" as const } },
+    ],
+  };
 }
 
 type PageProps = {
@@ -117,37 +135,6 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const categoryId = (params?.categoryId ?? "").trim(); // "" | "uncategorized" | real id
   const showFilters = params?.filters === "1";
 
-  // For dropdown (only needed when filters shown, but cheap enough)
-  const categories = await prisma.category.findMany({
-    where: { userId: user.id },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
-
-  // ✅ ALL-TIME total (matches q/category filters, but NOT month)
-  const totalAgg = await prisma.transaction.aggregate({
-    where: {
-      userId: user.id,
-      ...(q
-        ? {
-            description: {
-              contains: q,
-              mode: "insensitive",
-            },
-          }
-        : {}),
-      ...(categoryId
-        ? categoryId === "uncategorized"
-          ? { categoryId: null }
-          : { categoryId }
-        : {}),
-    },
-    _sum: { amountCents: true },
-  });
-
-  const allTimeTotalCents = totalAgg._sum.amountCents ?? 0;
-  const totalIsPositive = allTimeTotalCents >= 0;
-
   const baseParams = {
     month,
     q: q || undefined,
@@ -169,6 +156,63 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     // keep filters hidden on reset
   })}`;
 
+  // For dropdown (only needed when filters shown, but cheap enough)
+  const categories = await prisma.category.findMany({
+    where: { userId: user.id },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  // Count total transactions ever (for first-time empty state)
+  const totalCountEver = await prisma.transaction.count({
+    where: { userId: user.id },
+  });
+
+  const searchWhere = buildSearchWhere(q);
+
+  const categoryWhere =
+    categoryId && categoryId !== ""
+      ? categoryId === "uncategorized"
+        ? { categoryId: null }
+        : { categoryId }
+      : {};
+
+  // ✅ ALL-TIME total (respects q/category filters, but NOT month)
+  const totalAgg = await prisma.transaction.aggregate({
+    where: {
+      userId: user.id,
+      ...searchWhere,
+      ...categoryWhere,
+    },
+    _sum: { amountCents: true },
+  });
+
+  const allTimeTotalCents = totalAgg._sum.amountCents ?? 0;
+  const totalIsPositive = allTimeTotalCents >= 0;
+
+  // Month range (UTC)
+  const [y, m] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(y, m - 1, 1));
+  const end = new Date(Date.UTC(y, m, 1));
+
+  // Gentle month summary (respects current month + filters)
+  const monthAgg = await prisma.transaction.aggregate({
+    where: {
+      userId: user.id,
+      date: { gte: start, lt: end },
+      ...searchWhere,
+      ...categoryWhere,
+    },
+    _sum: { amountCents: true },
+    _count: { _all: true },
+  });
+
+  const monthCount = monthAgg._count._all ?? 0;
+  const monthTotalCents = monthAgg._sum.amountCents ?? 0;
+
+  const monthLabel = formatMonthLabel(month);
+  const filtersActive = !!(q || categoryId);
+
   return (
     <main style={{ display: "grid", gap: 20 }}>
       {/* Header / summary */}
@@ -182,9 +226,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             <div className="subtle">Signed in as {email}</div>
 
             <div
-              className={`amount ${
-                totalIsPositive ? "amount-positive" : "amount-negative"
-              }`}
+              className={`amount ${totalIsPositive ? "amount-positive" : "amount-negative"}`}
               style={{ fontSize: 26, fontWeight: 700 }}
             >
               {formatMoney(allTimeTotalCents)}
@@ -192,10 +234,10 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
             <div className="subtle">
               All-time total
-              {(q || categoryId) ? " (respects current filters)" : " across your entire history."}
+              {filtersActive ? " (respects current filters)" : " across your entire history."}
             </div>
 
-            {(q || categoryId) ? (
+            {filtersActive ? (
               <div className="subtle">
                 {q ? `Search: “${q}”` : ""}
                 {q && categoryId ? " • " : ""}
@@ -226,6 +268,24 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             <Link className="btn" href="/api/auth/signout">
               Sign out
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Gentle monthly summary (no charts) */}
+      <section className="card">
+        <div className="card-header">
+          <div style={{ display: "grid", gap: 6 }}>
+            <div className="h2">This month</div>
+            <div className="subtle">
+              In {monthLabel}, you logged <b>{monthCount}</b>{" "}
+              {monthCount === 1 ? "transaction" : "transactions"} totaling{" "}
+              <b>{formatMoney(monthTotalCents)}</b>.
+              {filtersActive ? " (With your current filters.)" : ""}
+            </div>
+            <div className="subtle">
+              A quiet check-in: does this month feel aligned with what you care about?
+            </div>
           </div>
         </div>
       </section>
@@ -271,22 +331,12 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label className="subtle">Search</label>
-                <input
-                  className="input"
-                  name="q"
-                  defaultValue={q}
-                  placeholder="Search description…"
-                />
+                <input className="input" name="q" defaultValue={q} placeholder="Search description or notes…" />
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label className="subtle">Category</label>
-                <select
-                  className="select"
-                  name="categoryId"
-                  defaultValue={categoryId}
-                  style={{ minWidth: 240 }}
-                >
+                <select className="select" name="categoryId" defaultValue={categoryId} style={{ minWidth: 240 }}>
                   <option value="">All categories</option>
                   <option value="uncategorized">Uncategorized</option>
                   {categories.map((c) => (
@@ -325,7 +375,15 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
 
         <div className="card-body">
-          <TransactionsList userId={user.id} q={q} month={month} categoryId={categoryId} />
+          <TransactionsList
+            userId={user.id}
+            q={q}
+            month={month}
+            categoryId={categoryId}
+            totalCountEver={totalCountEver}
+            resetHref={resetHref}
+            showFiltersHref={showFiltersHref}
+          />
         </div>
       </section>
     </main>
@@ -337,44 +395,89 @@ async function TransactionsList({
   q,
   month,
   categoryId,
+  totalCountEver,
+  resetHref,
+  showFiltersHref,
 }: {
   userId: string;
   q: string;
   month: string;
   categoryId: string;
+  totalCountEver: number;
+  resetHref: string;
+  showFiltersHref: string;
 }) {
   const [y, m] = month.split("-").map(Number);
   const start = new Date(Date.UTC(y, m - 1, 1));
   const end = new Date(Date.UTC(y, m, 1));
 
+  const searchWhere = buildSearchWhere(q);
+
+  const categoryWhere =
+    categoryId && categoryId !== ""
+      ? categoryId === "uncategorized"
+        ? { categoryId: null }
+        : { categoryId }
+      : {};
+
   const items = await prisma.transaction.findMany({
     where: {
       userId,
       date: { gte: start, lt: end },
-      ...(q
-        ? {
-            description: {
-              contains: q,
-              mode: "insensitive",
-            },
-          }
-        : {}),
-      ...(categoryId
-        ? categoryId === "uncategorized"
-          ? { categoryId: null }
-          : { categoryId }
-        : {}),
+      ...searchWhere,
+      ...categoryWhere,
     },
     orderBy: { date: "desc" },
     take: 50,
     include: { category: true },
   });
 
-  if (items.length === 0) {
+  // Empty state: brand new user (no transactions ever)
+  if (totalCountEver === 0) {
     return (
-      <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ fontWeight: 650 }}>You’re all set.</div>
+        <div className="subtle">
+          When you add your first transaction, it’ll show up here. Keep it simple — one entry is enough to start.
+        </div>
+        <div className="subtle">
+          If you’d like, you can also{" "}
+          <Link className="btn btn-ghost" href={showFiltersHref} style={{ padding: 0 }}>
+            open filters
+          </Link>{" "}
+          later to explore patterns by month and category.
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state: no matches for current filters/month
+  if (items.length === 0) {
+    const hasFilters = !!(q || categoryId);
+    return (
+      <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>No matches</div>
-        <div className="subtle">Try showing filters and adjusting month/search/category.</div>
+        <div className="subtle">
+          {hasFilters
+            ? "Try adjusting month, search, or category."
+            : "There aren’t any transactions for this month yet."}
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <Link className="btn btn-secondary" href={showFiltersHref}>
+            Show filters
+          </Link>
+
+          <Link className="btn" href={resetHref}>
+            Go to current month
+          </Link>
+
+          {hasFilters ? (
+            <div className="subtle">Tip: clearing search is often the fastest reset.</div>
+          ) : (
+            <div className="subtle">Tip: add one entry and the month will start taking shape.</div>
+          )}
+        </div>
       </div>
     );
   }
@@ -413,6 +516,8 @@ async function TransactionsList({
               formattedAmount={formatMoney(t.amountCents)}
               categoryId={t.categoryId}
               categoryName={t.category?.name ?? null}
+              notes={t.notes ?? null}
+              flags={(t as any).flags ?? []}
             />
           </li>
         ))}
