@@ -157,11 +157,13 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   })}`;
 
   // For dropdown (only needed when filters shown, but cheap enough)
-  const categories = await prisma.category.findMany({
+  const categories: { id: string; name: string }[] =
+  await prisma.category.findMany({
     where: { userId: user.id },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
+
 
   // Count total transactions ever (for first-time empty state)
   const totalCountEver = await prisma.transaction.count({
