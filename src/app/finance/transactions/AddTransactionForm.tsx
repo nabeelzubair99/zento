@@ -39,6 +39,7 @@ export function AddTransactionForm() {
   const [categoryId, setCategoryId] = React.useState<string>(""); // "" = Uncategorized
 
   // Create category UI
+  const [showCreateCategory, setShowCreateCategory] = React.useState(false);
   const [newCategoryName, setNewCategoryName] = React.useState("");
   const [isCreatingCategory, setIsCreatingCategory] = React.useState(false);
   const [categoryError, setCategoryError] = React.useState<string | null>(null);
@@ -95,9 +96,9 @@ export function AddTransactionForm() {
       const created = (await res.json()) as { id: string; name: string };
       setNewCategoryName("");
 
-      // Refresh list, then select the newly created category
       await loadCategories();
       setCategoryId(created.id);
+      setShowCreateCategory(false);
     } catch {
       setCategoryError("Failed to create category.");
     } finally {
@@ -164,6 +165,7 @@ export function AddTransactionForm() {
 
       form.reset();
       setCategoryId("");
+      setShowCreateCategory(false);
       router.refresh();
     } catch {
       setError("Something went wrong while saving. Try again.");
@@ -174,23 +176,58 @@ export function AddTransactionForm() {
 
   return (
     <form onSubmit={onSubmit} style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "grid", gap: 10 }}>
+      {/* Main fields */}
+      <div style={{ display: "grid", gap: 12 }}>
         <div style={{ display: "grid", gap: 6 }}>
           <label className="subtle">Description</label>
-          <input className="input" name="description" required disabled={disabledAny} placeholder="e.g. Grocery run" />
+          <input
+            className="input"
+            name="description"
+            required
+            disabled={disabledAny}
+            placeholder="e.g. Grocery run"
+          />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 10,
+          }}
+        >
+          {/* Amount with $ prefix */}
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Amount</label>
-            <input
-              className="input"
-              name="amount"
-              required
-              inputMode="decimal"
-              placeholder="12.34"
-              disabled={disabledAny}
-            />
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                border: "1px solid rgb(var(--border))",
+                borderRadius: 14,
+                padding: "0 12px",
+                background: "rgb(var(--surface))",
+              }}
+            >
+              <span className="subtle" style={{ fontSize: 14 }}>
+                $
+              </span>
+              <input
+                className="input"
+                name="amount"
+                required
+                inputMode="decimal"
+                placeholder="12.34"
+                disabled={disabledAny}
+                style={{
+                  border: "none",
+                  boxShadow: "none",
+                  paddingLeft: 0,
+                  paddingRight: 0,
+                }}
+              />
+            </div>
           </div>
 
           <div style={{ display: "grid", gap: 6 }}>
@@ -216,45 +253,72 @@ export function AddTransactionForm() {
             ))}
           </select>
 
-          <div className="subtle" style={{ marginTop: 2 }}>
-            Tip: Keep categories broad (Food, Rent, Bills, Fun).
-          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              setCategoryError(null);
+              setShowCreateCategory((v) => !v);
+            }}
+            disabled={disabledAny}
+            style={{ justifySelf: "flex-start" }}
+          >
+            {showCreateCategory ? "Hide category creator" : "Create a new category"}
+          </button>
         </div>
 
-        {/* Create category */}
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="subtle">Create a new category</label>
+        {/* Create category (secondary panel) */}
+        {showCreateCategory ? (
+          <div
+            style={{
+              border: "1px solid rgb(var(--border))",
+              borderRadius: 16,
+              padding: 14,
+              background: "rgba(255,255,255,0.55)",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <div style={{ display: "grid", gap: 4 }}>
+              <div style={{ fontWeight: 650 }}>New category</div>
+              <div className="subtle">Example: Food, Rent, Utilities</div>
+            </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input
-              className="input"
-              value={newCategoryName}
-              onChange={(e) => setNewCategoryName(e.target.value)}
-              placeholder="New category (e.g. Food)"
-              disabled={disabledAny}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault(); // don't submit the transaction form
-                  void onCreateCategory();
-                }
-              }}
-            />
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                className="input"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                placeholder="Category name"
+                disabled={disabledAny}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault(); // don't submit the transaction form
+                    void onCreateCategory();
+                  }
+                }}
+                style={{ minWidth: 240 }}
+              />
 
-            <button className="btn" type="button" onClick={onCreateCategory} disabled={disabledAny}>
-              {isCreatingCategory ? "Creating..." : "Create"}
-            </button>
+              <button className="btn btn-secondary" type="button" onClick={onCreateCategory} disabled={disabledAny}>
+                {isCreatingCategory ? "Creating..." : "Create"}
+              </button>
+            </div>
+
+            {categoryError ? (
+              <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{categoryError}</div>
+            ) : null}
           </div>
-
-          {categoryError ? <div style={{ color: "crimson", fontSize: 13 }}>{categoryError}</div> : null}
-        </div>
+        ) : null}
       </div>
 
+      {/* Footer actions */}
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn btn-primary" type="submit" disabled={disabledAny}>
           {isSaving ? "Saving..." : "Add transaction"}
         </button>
 
-        {error ? <span style={{ color: "crimson", fontSize: 13 }}>{error}</span> : null}
+        {error ? <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span> : null}
       </div>
     </form>
   );

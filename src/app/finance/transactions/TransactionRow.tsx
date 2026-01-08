@@ -65,6 +65,8 @@ export function TransactionRow(props: {
 
   const descInputRef = React.useRef<HTMLInputElement | null>(null);
 
+  const amountIsPositive = props.amountCents >= 0;
+
   async function loadCategoriesOnce() {
     if (categories.length > 0) return;
 
@@ -221,29 +223,46 @@ export function TransactionRow(props: {
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 14, alignItems: "baseline" }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div
+                style={{
+                  fontWeight: 650,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: 520,
+                }}
+                title={props.description}
+              >
                 {props.description}
               </div>
 
-              {props.categoryName ? <span className="pill">{props.categoryName}</span> : null}
+              {props.categoryName ? <span className="pill pill-accent">{props.categoryName}</span> : null}
             </div>
 
             <div className="subtle" style={{ marginTop: 2 }}>
               {props.formattedDate}
             </div>
 
-            {error ? <div style={{ marginTop: 8, color: "crimson", fontSize: 13 }}>{error}</div> : null}
+            {error ? (
+              <div style={{ marginTop: 8, color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div>
+            ) : null}
           </div>
 
-          <div style={{ fontWeight: 750, whiteSpace: "nowrap" }}>{props.formattedAmount}</div>
+          <div
+            className={`amount ${amountIsPositive ? "amount-positive" : "amount-negative"}`}
+            style={{ fontWeight: 750, whiteSpace: "nowrap" }}
+            title={props.formattedAmount}
+          >
+            {props.formattedAmount}
+          </div>
         </div>
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
           <button
             type="button"
-            className="btn"
+            className="btn btn-ghost"
             onClick={() => {
               setError(null);
               setPendingDelete(false);
@@ -258,7 +277,12 @@ export function TransactionRow(props: {
             Edit
           </button>
 
-          <button type="button" className="btn" onClick={onDelete} disabled={isSaving || pendingDelete}>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={onDelete}
+            disabled={isSaving || pendingDelete}
+          >
             Delete
           </button>
 
@@ -271,11 +295,11 @@ export function TransactionRow(props: {
                 gap: 10,
                 padding: "10px 12px",
                 borderRadius: 14,
-                border: "1px solid rgb(var(--border))",
-                background: "rgba(255,255,255,0.7)",
+                border: "1px solid rgba(var(--danger), 0.25)",
+                background: "rgba(var(--danger), 0.08)",
               }}
             >
-              <span className="subtle" style={{ color: "crimson" }}>
+              <span className="subtle" style={{ color: "rgb(var(--danger))" }}>
                 Deleted. Finalizing in 5s…
               </span>
               <button type="button" className="btn btn-primary" onClick={onUndoDelete} disabled={isSaving}>
@@ -298,7 +322,7 @@ export function TransactionRow(props: {
         padding: 14,
         borderRadius: 16,
         border: "1px solid rgb(var(--border))",
-        background: "rgba(255,255,255,0.75)",
+        background: "rgba(255,255,255,0.65)",
       }}
     >
       <div style={{ display: "grid", gap: 10 }}>
@@ -353,10 +377,12 @@ export function TransactionRow(props: {
               </option>
             ))}
           </select>
-          {categoriesError ? <span style={{ fontSize: 12, color: "crimson" }}>{categoriesError}</span> : null}
+          {categoriesError ? (
+            <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>{categoriesError}</span>
+          ) : null}
         </div>
 
-        {error ? <div style={{ color: "crimson", fontSize: 13 }}>{error}</div> : null}
+        {error ? <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div> : null}
 
         <div className="subtle">
           Tip: <b>Enter</b> to save • <b>Esc</b> to cancel
@@ -367,7 +393,7 @@ export function TransactionRow(props: {
         <button type="button" className="btn btn-primary" onClick={onSave} disabled={isSaving}>
           {isSaving ? "Saving..." : "Save"}
         </button>
-        <button type="button" className="btn" onClick={onCancel} disabled={isSaving}>
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={isSaving}>
           Cancel
         </button>
       </div>
