@@ -22,7 +22,6 @@ model User {
   transactions Transaction[]
 }
 
-
 model Category {
   id           String        @id @default(cuid())
   userId       String
@@ -45,7 +44,8 @@ model Transaction {
   categoryId  String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  category    Category? @relation(fields: [categoryId], references: [id])
+
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
