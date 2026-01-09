@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { TransactionFlag } from "@prisma/client";
 
 function json(data: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(data), {
@@ -70,30 +71,36 @@ async function assertCategoryBelongsToUser(userId: string, categoryId: string) {
 }
 
 /**
- * Flags validation
- * Keep this list in sync with prisma enum TransactionFlag
+ * Flags validation (Prisma enum-backed)
  */
-const ALLOWED_FLAGS = new Set(["WORTH_IT", "UNEXPECTED", "REVIEW_LATER"]);
+const ALLOWED_FLAGS = new Set<TransactionFlag>(Object.values(TransactionFlag));
 
-function parseFlags(input: unknown) {
-  // Accept: undefined (no-op), null (clear), [] or ["WORTH_IT", ...]
-  if (input === undefined) return { ok: true as const, value: undefined as string[] | undefined };
-  if (input === null) return { ok: true as const, value: [] as string[] };
+function parseFlags(input: unknown): { ok: true; value: TransactionFlag[] | undefined } | { ok: false; error: string } {
+  // Accept:
+  // - undefined => no-op (PATCH can omit)
+  // - null => clear (becomes [])
+  // - [] or ["WORTH_IT", ...]
+  if (input === undefined) return { ok: true as const, value: undefined };
+  if (input === null) return { ok: true as const, value: [] };
 
   if (!Array.isArray(input)) {
     return { ok: false as const, error: "flags must be an array of strings" };
   }
 
-  const out: string[] = [];
+  const out: TransactionFlag[] = [];
   for (const raw of input) {
     if (typeof raw !== "string") {
       return { ok: false as const, error: "flags must be an array of strings" };
     }
+
     const v = raw.trim().toUpperCase();
-    if (!ALLOWED_FLAGS.has(v)) {
+
+    if (!ALLOWED_FLAGS.has(v as TransactionFlag)) {
       return { ok: false as const, error: `Invalid flag: ${raw}` };
     }
-    if (!out.includes(v)) out.push(v);
+
+    const flag = v as TransactionFlag;
+    if (!out.includes(flag)) out.push(flag);
   }
 
   return { ok: true as const, value: out };
@@ -158,7 +165,9 @@ export async function POST(req: Request) {
 
   const parsedFlags = parseFlags(body?.flags);
   if (!parsedFlags.ok) return json({ error: parsedFlags.error }, { status: 400 });
-  const flags = parsedFlags.value ?? [];
+
+  // POST always sets flags (default empty)
+  const flags: TransactionFlag[] = parsedFlags.value ?? [];
 
   // allow null/undefined/"" to mean "no category"
   const categoryIdRaw = body?.categoryId;
@@ -273,6 +282,9 @@ export async function PATCH(req: Request) {
   if (body?.flags !== undefined) {
     const parsed = parseFlags(body.flags);
     if (!parsed.ok) return json({ error: parsed.error }, { status: 400 });
+
+    // undefined means "no-op" (but we only enter this block when flags is defined)
+    // null becomes [] via parseFlags
     data.flags = parsed.value ?? [];
   }
 
