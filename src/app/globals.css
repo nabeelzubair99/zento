@@ -1,23 +1,31 @@
 :root {
   /* Warm, relaxed palette (beige + cocoa + mint) */
-  --bg: 250 247 240;          /* page beige */
-  --surface: 255 253 248;     /* card / inputs */
-  --text: 43 33 24;           /* cocoa */
-  --muted: 107 91 77;         /* warm muted */
-  --border: 231 220 203;      /* soft tan */
+  --bg: 250 247 240;
+  /* page beige */
+  --surface: 255 253 248;
+  /* card / inputs */
+  --text: 43 33 24;
+  /* cocoa */
+  --muted: 107 91 77;
+  /* warm muted */
+  --border: 231 220 203;
+  /* soft tan */
 
   /* Accent (mint) */
-  --accent: 47 125 109;       /* calm mint */
-  --accent-weak: 227 243 238; /* mint wash */
+  --accent: 47 125 109;
+  /* calm mint */
+  --accent-weak: 227 243 238;
+  /* mint wash */
 
   /* Status */
-  --danger: 163 64 50;        /* muted brick */
+  --danger: 163 64 50;
+  /* muted brick */
   --danger-weak: 251 236 233;
 
   /* Elevation + shape */
   --radius-lg: 18px;
   --radius-md: 14px;
-  --shadow-sm: 0 1px 0 rgba(0,0,0,0.03);
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.03);
   --shadow-md: 0 10px 30px rgba(28, 20, 14, 0.06);
 
   /* Layout rhythm */
@@ -55,6 +63,7 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
 a:hover {
   text-decoration: underline;
 }
@@ -98,7 +107,8 @@ a:hover {
 
 .container-app {
   margin: 0 auto;
-  max-width: 52rem; /* slightly wider than before */
+  max-width: 52rem;
+  /* slightly wider than before */
   padding: 40px 16px;
 }
 
@@ -144,9 +154,11 @@ a:hover {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
+
 .amount-positive {
   color: rgb(var(--accent));
 }
+
 .amount-negative {
   color: rgb(var(--danger));
 }
@@ -174,6 +186,35 @@ a:hover {
   box-shadow: 0 0 0 4px rgba(var(--accent), 0.12);
   border-color: rgba(var(--accent), 0.55);
   background: rgb(var(--surface));
+}
+
+/* ✅ New: normalize native date/month controls so they match .input sizing */
+.input[type="date"],
+.input[type="month"] {
+  /* Ensures the native control matches text inputs */
+  height: 44px;
+  line-height: 44px;
+  padding-top: 0;
+  padding-bottom: 0;
+
+  /* Reduce browser-specific styling weirdness */
+  -webkit-appearance: none;
+  appearance: none;
+
+  font: inherit;
+}
+
+/* Some browsers render the internal date text oddly unless this is set */
+.input[type="date"]::-webkit-date-and-time-value,
+.input[type="month"]::-webkit-date-and-time-value {
+  line-height: 44px;
+}
+
+/* Keep the calendar icon aligned and not oversized */
+.input[type="date"]::-webkit-calendar-picker-indicator,
+.input[type="month"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.75;
 }
 
 /* ✅ New: textarea baseline (notes) */
@@ -263,6 +304,7 @@ textarea.input {
   background: rgba(255, 255, 255, 0.65);
   color: rgb(var(--muted));
 }
+
 .pill-accent {
   background: rgba(var(--accent), 0.10);
   border-color: rgba(var(--accent), 0.25);
@@ -273,12 +315,15 @@ textarea.input {
 button.pill {
   cursor: pointer;
 }
+
 button.pill:hover {
   filter: brightness(0.98);
 }
+
 button.pill:active {
   transform: translateY(1px);
 }
+
 button.pill:focus-visible {
   outline: none;
   box-shadow: 0 0 0 4px rgba(var(--accent), 0.12);

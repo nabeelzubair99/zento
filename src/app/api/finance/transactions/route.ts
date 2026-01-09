@@ -87,7 +87,9 @@ const ALLOWED_FLAGS = new Set<TransactionFlag>(Object.values(TransactionFlag));
 
 function parseFlags(
   input: unknown
-): { ok: true; value: TransactionFlag[] | undefined } | { ok: false; error: string } {
+):
+  | { ok: true; value: TransactionFlag[] | undefined }
+  | { ok: false; error: string } {
   // Accept:
   // - undefined => no-op (PATCH can omit)
   // - null => clear (becomes [])
@@ -102,7 +104,10 @@ function parseFlags(
   const out: TransactionFlag[] = [];
   for (const raw of input) {
     if (typeof raw !== "string") {
-      return { ok: false as const, error: "flags must be an array of strings" };
+      return {
+        ok: false as const,
+        error: "flags must be an array of strings",
+      };
     }
 
     const v = raw.trim().toUpperCase();
@@ -126,7 +131,8 @@ export async function GET(req: Request) {
 
   // Month filter
   const parsedMonth = parseMonth(url.searchParams.get("month"));
-  if (!parsedMonth.ok) return json({ error: parsedMonth.error }, { status: 400 });
+  if (!parsedMonth.ok)
+    return json({ error: parsedMonth.error }, { status: 400 });
 
   // Optional search filter
   const q = (url.searchParams.get("q") ?? "").trim();
@@ -176,7 +182,8 @@ export async function POST(req: Request) {
   const notes = body?.notes ? String(body.notes) : null;
 
   const parsedFlags = parseFlags(body?.flags);
-  if (!parsedFlags.ok) return json({ error: parsedFlags.error }, { status: 400 });
+  if (!parsedFlags.ok)
+    return json({ error: parsedFlags.error }, { status: 400 });
 
   // POST always sets flags (default empty)
   const flags: TransactionFlag[] = parsedFlags.value ?? [];
@@ -219,13 +226,18 @@ export async function POST(req: Request) {
     if (!ok) return json({ error: "Invalid categoryId" }, { status: 400 });
   }
 
-  // NEW: accept explicit type, otherwise infer from sign for backward compatibility
+  // Accept explicit type, otherwise infer from sign for backward compatibility.
+  // Convention: negative => EXPENSE, positive => INCOME
   const typeFromBody = parseTransactionType(body?.type);
   if (body?.type !== undefined && !typeFromBody) {
-    return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    return json(
+      { error: 'type must be "EXPENSE" or "INCOME"' },
+      { status: 400 }
+    );
   }
 
-  const inferredType: TransactionType = amountCentsInput < 0 ? "INCOME" : "EXPENSE";
+  const inferredType: TransactionType =
+    amountCentsInput < 0 ? "EXPENSE" : "INCOME";
   const type: TransactionType = typeFromBody ?? inferredType;
 
   // Canonical: store positive cents in DB
@@ -279,14 +291,19 @@ export async function PATCH(req: Request) {
 
   if (body?.description !== undefined) {
     const description = String(body.description ?? "").trim();
-    if (!description) return json({ error: "description cannot be empty" }, { status: 400 });
+    if (!description)
+      return json(
+        { error: "description cannot be empty" },
+        { status: 400 }
+      );
     data.description = description;
   }
 
-  // NEW: type can be updated
+  // type can be updated
   if (body?.type !== undefined) {
     const t = parseTransactionType(body.type);
-    if (!t) return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    if (!t)
+      return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
     data.type = t;
   }
 
@@ -306,9 +323,10 @@ export async function PATCH(req: Request) {
 
     // Backward compatible behavior:
     // - if client sends negative amount and no explicit type in this PATCH, infer type from sign
+    // Convention: negative => EXPENSE, positive => INCOME
     // - always store absolute cents
     if (body?.type === undefined) {
-      data.type = amountCentsInput < 0 ? "INCOME" : "EXPENSE";
+      data.type = amountCentsInput < 0 ? "EXPENSE" : "INCOME";
     }
     data.amountCents = Math.abs(amountCentsInput);
   }
@@ -329,8 +347,6 @@ export async function PATCH(req: Request) {
     const parsed = parseFlags(body.flags);
     if (!parsed.ok) return json({ error: parsed.error }, { status: 400 });
 
-    // undefined means "no-op" (but we only enter this block when flags is defined)
-    // null becomes [] via parseFlags
     data.flags = parsed.value ?? [];
   }
 

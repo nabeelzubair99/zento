@@ -5,6 +5,8 @@ import { AddTransactionForm } from "./AddTransactionForm";
 import { prisma } from "@/lib/prisma";
 import { TransactionRow } from "./TransactionRow";
 
+type TransactionType = "EXPENSE" | "INCOME";
+
 function formatMoney(amountCents: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -61,6 +63,17 @@ function buildSearchWhere(q: string) {
       { notes: { contains: query, mode: "insensitive" as const } },
     ],
   };
+}
+
+/**
+ * Compute a "net" total using the canonical model:
+ * - amountCents is always positive
+ * - EXPENSE subtracts, INCOME adds
+ */
+function netFromGroupedSums(grouped: Array<{ type: TransactionType; _sum: { amountCents: number | null } }>) {
+  const income = grouped.find((g) => g.type === "INCOME")?._sum.amountCents ?? 0;
+  const expense = grouped.find((g) => g.type === "EXPENSE")?._sum.amountCents ?? 0;
+  return income - expense;
 }
 
 type PageProps = {
@@ -177,8 +190,9 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         : { categoryId }
       : {};
 
-  // ✅ ALL-TIME total (respects q/category filters, but NOT month)
-  const totalAgg = await prisma.transaction.aggregate({
+  // ✅ ALL-TIME net total (respects q/category filters, but NOT month)
+  const totalGrouped = await prisma.transaction.groupBy({
+    by: ["type"],
     where: {
       userId: user.id,
       ...searchWhere,
@@ -187,7 +201,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     _sum: { amountCents: true },
   });
 
-  const allTimeTotalCents = totalAgg._sum.amountCents ?? 0;
+  const allTimeTotalCents = netFromGroupedSums(totalGrouped as any);
   const totalIsPositive = allTimeTotalCents >= 0;
 
   // Month range (UTC)
@@ -196,7 +210,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   const end = new Date(Date.UTC(y, m, 1));
 
   // Gentle month summary (respects current month + filters)
-  const monthAgg = await prisma.transaction.aggregate({
+  const monthGrouped = await prisma.transaction.groupBy({
+    by: ["type"],
     where: {
       userId: user.id,
       date: { gte: start, lt: end },
@@ -204,11 +219,18 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
       ...categoryWhere,
     },
     _sum: { amountCents: true },
-    _count: { _all: true },
   });
 
-  const monthCount = monthAgg._count._all ?? 0;
-  const monthTotalCents = monthAgg._sum.amountCents ?? 0;
+  const monthCount = await prisma.transaction.count({
+    where: {
+      userId: user.id,
+      date: { gte: start, lt: end },
+      ...searchWhere,
+      ...categoryWhere,
+    },
+  });
+
+  const monthTotalCents = netFromGroupedSums(monthGrouped as any);
 
   const monthLabel = formatMonthLabel(month);
   const filtersActive = !!(q || categoryId);
@@ -386,6 +408,7 @@ type TxItem = {
   id: string;
   description: string;
   amountCents: number;
+  type: TransactionType;
   date: Date;
   categoryId: string | null;
   notes: string | null;
@@ -512,9 +535,9 @@ async function TransactionsList({
               id={t.id}
               description={t.description}
               amountCents={t.amountCents}
+              type={t.type}
               dateISO={t.date.toISOString()}
               formattedDate={formatDate(t.date)}
-              formattedAmount={formatMoney(t.amountCents)}
               categoryId={t.categoryId}
               categoryName={t.category?.name ?? null}
               notes={t.notes ?? null}

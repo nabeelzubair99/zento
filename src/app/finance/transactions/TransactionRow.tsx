@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 
 type Category = { id: string; name: string };
 
+type TransactionType = "EXPENSE" | "INCOME";
+
 type TxFlag = "WORTH_IT" | "UNEXPECTED" | "REVIEW_LATER";
 
 const FLAG_LABELS: Record<TxFlag, string> = {
@@ -25,12 +27,26 @@ function parseAmountToCents(input: string): number | null {
   return Math.round(num * 100);
 }
 
+/**
+ * Use UTC parts so ISO dates from the server don't shift by timezone and show the wrong day.
+ */
 function isoToDateInputValue(iso: string) {
   const d = new Date(iso);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatMoneyFromCents(centsAbs: number, type: TransactionType) {
+  const dollars = centsAbs / 100;
+  const sign = type === "EXPENSE" ? "-" : "";
+  const formatted = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+  }).format(dollars);
+  // Intl already includes currency symbol; we just prefix '-' for expense.
+  return `${sign}${formatted}`;
 }
 
 async function readErrorMessage(res: Response) {
@@ -48,10 +64,17 @@ async function readErrorMessage(res: Response) {
 export function TransactionRow(props: {
   id: string;
   description: string;
+
+  // Canonical: amountCents is absolute (positive); direction comes from type.
   amountCents: number;
+  type: TransactionType;
+
   dateISO: string;
   formattedDate: string;
-  formattedAmount: string;
+
+  // You can still pass these, but we will compute amount display from amountCents+type
+  formattedAmount?: string;
+
   categoryId?: string | null;
   categoryName?: string | null;
 
@@ -77,9 +100,14 @@ export function TransactionRow(props: {
   );
 
   const [desc, setDesc] = React.useState(props.description);
+
+  // Store as ABS value in the input; type determines direction.
   const [amount, setAmount] = React.useState(
-    String((props.amountCents / 100).toFixed(2))
+    String((Math.abs(props.amountCents) / 100).toFixed(2))
   );
+
+  const [txType, setTxType] = React.useState<TransactionType>(props.type);
+
   const [date, setDate] = React.useState(isoToDateInputValue(props.dateISO));
   const [categoryId, setCategoryId] = React.useState<string>(
     props.categoryId ?? ""
@@ -95,7 +123,8 @@ export function TransactionRow(props: {
 
   const descInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  const amountIsPositive = props.amountCents >= 0;
+  // For styling: income is "positive", expense is "negative"
+  const amountIsPositive = txType === "INCOME";
 
   async function loadCategoriesOnce() {
     if (categories.length > 0) return;
@@ -122,7 +151,8 @@ export function TransactionRow(props: {
   React.useEffect(() => {
     if (!isEditing) {
       setDesc(props.description);
-      setAmount(String((props.amountCents / 100).toFixed(2)));
+      setAmount(String((Math.abs(props.amountCents) / 100).toFixed(2)));
+      setTxType(props.type);
       setDate(isoToDateInputValue(props.dateISO));
       setCategoryId(props.categoryId ?? "");
       setNotes(props.notes ?? "");
@@ -133,6 +163,7 @@ export function TransactionRow(props: {
   }, [
     props.description,
     props.amountCents,
+    props.type,
     props.dateISO,
     props.categoryId,
     props.notes,
@@ -207,9 +238,13 @@ export function TransactionRow(props: {
       return;
     }
 
-    const amountCents = parseAmountToCents(amount);
-    if (amountCents === null) {
+    const amountCentsAbs = parseAmountToCents(amount);
+    if (amountCentsAbs === null) {
       setError("Enter a valid amount (example: 12.34).");
+      return;
+    }
+    if (!Number.isInteger(amountCentsAbs) || amountCentsAbs === 0) {
+      setError("Amount must be greater than 0.00.");
       return;
     }
 
@@ -227,7 +262,8 @@ export function TransactionRow(props: {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             description,
-            amountCents,
+            amountCents: amountCentsAbs, // store abs
+            type: txType, // store direction explicitly
             date,
             categoryId: categoryId || null,
             notes: notes.trim() ? notes.trim() : null,
@@ -272,6 +308,9 @@ export function TransactionRow(props: {
   if (!isEditing) {
     const hasDetails = !!(props.notes || (props.flags?.length ?? 0) > 0);
     const viewFlags = (props.flags ?? []) as TxFlag[];
+
+    const viewAmount = formatMoneyFromCents(Math.abs(props.amountCents), props.type);
+    const viewIsPositive = props.type === "INCOME";
 
     return (
       <div style={{ display: "grid", gap: 10 }}>
@@ -354,12 +393,12 @@ export function TransactionRow(props: {
 
           <div
             className={`amount ${
-              amountIsPositive ? "amount-positive" : "amount-negative"
+              viewIsPositive ? "amount-positive" : "amount-negative"
             }`}
             style={{ fontWeight: 750, whiteSpace: "nowrap" }}
-            title={props.formattedAmount}
+            title={viewAmount}
           >
-            {props.formattedAmount}
+            {viewAmount}
           </div>
         </div>
 
@@ -466,11 +505,66 @@ export function TransactionRow(props: {
           />
         </div>
 
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-        >
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Amount</label>
+
+            {/* Type toggle (Expense/Income) */}
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: 6,
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-flex",
+                  border: "1px solid rgb(var(--border))",
+                  borderRadius: 999,
+                  overflow: "hidden",
+                  background: "rgb(var(--surface))",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setTxType("EXPENSE")}
+                  disabled={isSaving}
+                  style={{
+                    borderRadius: 0,
+                    padding: "8px 12px",
+                    fontWeight: 650,
+                    background:
+                      txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                  }}
+                >
+                  Expense
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setTxType("INCOME")}
+                  disabled={isSaving}
+                  style={{
+                    borderRadius: 0,
+                    padding: "8px 12px",
+                    fontWeight: 650,
+                    background:
+                      txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                  }}
+                >
+                  Income
+                </button>
+              </div>
+
+              <span className="subtle" style={{ fontSize: 12 }}>
+                {txType === "EXPENSE" ? "Will save as negative" : "Will save as positive"}
+              </span>
+            </div>
+
             <input
               className="input"
               value={amount}
@@ -488,6 +582,12 @@ export function TransactionRow(props: {
               value={date}
               onChange={(e) => setDate(e.target.value)}
               disabled={isSaving}
+              style={{
+                height: 44,
+                lineHeight: "44px",
+                paddingTop: 0,
+                paddingBottom: 0,
+              }}
             />
           </div>
         </div>
@@ -567,9 +667,7 @@ export function TransactionRow(props: {
         </div>
 
         {error ? (
-          <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
-            {error}
-          </div>
+          <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div>
         ) : null}
 
         <div className="subtle">

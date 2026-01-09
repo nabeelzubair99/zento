@@ -12,7 +12,7 @@ function parseAmountToCentsWithSign(
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // If the user includes a '-', treat it as negative (we'll map that to INCOME in the UI).
+  // Convention (UI): EXPENSE is negative, INCOME is positive.
   const sign: 1 | -1 = trimmed.includes("-") ? -1 : 1;
 
   // Remove common formatting chars and the minus sign for numeric parsing.
@@ -63,7 +63,7 @@ export function AddTransactionForm() {
   const [categoryId, setCategoryId] = React.useState<string>(""); // "" = Uncategorized
 
   // Amount + type (Expense/Income)
-  const [txType, setTxType] = React.useState<TransactionType>("EXPENSE");
+  const [txType, setTxType] = React.useState<TransactionType | null>(null);
   const [amountText, setAmountText] = React.useState("");
 
   // Notes + flags (Phase 1)
@@ -140,13 +140,13 @@ export function AddTransactionForm() {
   };
 
   const flipSign = () => {
-    // iOS decimal keypad often has no "-" key. This gives users a reliable way to flip.
-    const hasMinus = amountText.trim().startsWith("-");
-    const next = hasMinus ? amountText.replace(/^\s*-\s*/, "") : `-${amountText}`;
-    setAmountText(next);
+    const trimmed = amountText.trim();
+    const hasMinus = trimmed.startsWith("-");
 
-    // Keep toggle in sync with the sign.
-    setTxType(hasMinus ? "EXPENSE" : "INCOME");
+    const next = hasMinus ? trimmed.replace(/^\s*-\s*/, "") : `-${trimmed}`;
+
+    setAmountText(next);
+    setTxType(hasMinus ? "INCOME" : "EXPENSE");
   };
 
   const setTypeAndNormalizeSign = (nextType: TransactionType) => {
@@ -154,13 +154,12 @@ export function AddTransactionForm() {
     const trimmed = amountText.trim();
     const hasMinus = trimmed.startsWith("-");
 
-    if (nextType === "INCOME" && !hasMinus) {
-      // Add a '-' so the user can also paste/type and see it reflected.
+    if (nextType === "EXPENSE" && !hasMinus) {
       setAmountText(trimmed ? `-${trimmed}` : "-");
       return;
     }
 
-    if (nextType === "EXPENSE" && hasMinus) {
+    if (nextType === "INCOME" && hasMinus) {
       setAmountText(trimmed.replace(/^\s*-\s*/, ""));
     }
   };
@@ -205,15 +204,18 @@ export function AddTransactionForm() {
         return;
       }
 
-      // We store a positive amount in cents, and separately store type.
-      // (Your API route will need to accept "type" too; if not yet, it can ignore it.)
+      if (!txType) {
+        setError("Please choose Expense or Income.");
+        return;
+      }
+
       const res = await fetch("/api/finance/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description,
           amountCents: parsed.centsAbs,
-          type: txType, // EXPENSE | INCOME
+          type: txType,
           date,
           categoryId: categoryId || null,
           notes: notes.trim() ? notes.trim() : null,
@@ -228,12 +230,11 @@ export function AddTransactionForm() {
 
       form.reset();
       setAmountText("");
-      setTxType("EXPENSE");
+      setTxType(null);
 
       setCategoryId("");
       setShowCreateCategory(false);
 
-      // reset Phase 1 extras
       setShowDetails(false);
       setNotes("");
       setFlags([]);
@@ -322,7 +323,6 @@ export function AddTransactionForm() {
                 </button>
               </div>
 
-              {/* Helpful on iOS where '-' is missing on the decimal keypad */}
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -334,11 +334,11 @@ export function AddTransactionForm() {
               </button>
 
               <span className="subtle" style={{ fontSize: 12 }}>
-                Tip: use “-” for income/refunds
+                Tip: use “-” for expenses
               </span>
             </div>
 
-            {/* Amount input */}
+            {/* Amount input (single shell, no nested box) */}
             <div
               style={{
                 display: "flex",
@@ -353,8 +353,8 @@ export function AddTransactionForm() {
               <span className="subtle" style={{ fontSize: 14 }}>
                 $
               </span>
+
               <input
-                className="input"
                 name="amount"
                 required
                 inputMode="decimal"
@@ -365,16 +365,27 @@ export function AddTransactionForm() {
                   const next = e.target.value;
                   setAmountText(next);
 
-                  // If user types/pastes a '-', auto-switch to INCOME.
-                  // If they remove '-', auto-switch back to EXPENSE.
-                  const hasMinus = next.trim().startsWith("-");
-                  setTxType(hasMinus ? "INCOME" : "EXPENSE");
+                  const trimmed = next.trim();
+
+                  if (trimmed.startsWith("-")) {
+                    setTxType("EXPENSE");
+                  } else if (trimmed.startsWith("+")) {
+                    setTxType("INCOME");
+                  } else if (trimmed !== "") {
+                    setTxType("INCOME");
+                  } else {
+                    setTxType(null);
+                  }
                 }}
                 style={{
+                  flex: 1,
+                  minWidth: 0,
                   border: "none",
-                  boxShadow: "none",
-                  paddingLeft: 0,
-                  paddingRight: 0,
+                  outline: "none",
+                  background: "transparent",
+                  padding: "11px 0", // match .input vertical rhythm
+                  fontSize: 14,
+                  color: "rgb(var(--text))",
                 }}
               />
             </div>
@@ -533,7 +544,7 @@ export function AddTransactionForm() {
                 disabled={disabledAny}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
-                    e.preventDefault(); // don't submit the transaction form
+                    e.preventDefault();
                     void onCreateCategory();
                   }
                 }}
