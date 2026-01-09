@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { AddTransactionForm } from "./AddTransactionForm";
 import { prisma } from "@/lib/prisma";
 import { TransactionRow } from "./TransactionRow";
+import type { Prisma } from "@prisma/client";
 
 function formatMoney(amountCents: number) {
   return new Intl.NumberFormat("en-US", {
@@ -157,13 +158,11 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   })}`;
 
   // For dropdown (only needed when filters shown, but cheap enough)
-  const categories: { id: string; name: string }[] =
-  await prisma.category.findMany({
+  const categories: { id: string; name: string }[] = await prisma.category.findMany({
     where: { userId: user.id },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
-
 
   // Count total transactions ever (for first-time empty state)
   const totalCountEver = await prisma.transaction.count({
@@ -422,17 +421,18 @@ async function TransactionsList({
         : { categoryId }
       : {};
 
-  const items = await prisma.transaction.findMany({
-    where: {
-      userId,
-      date: { gte: start, lt: end },
-      ...searchWhere,
-      ...categoryWhere,
-    },
-    orderBy: { date: "desc" },
-    take: 50,
-    include: { category: true },
-  });
+  const items: Prisma.TransactionGetPayload<{ include: { category: true } }>[] =
+    await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: { gte: start, lt: end },
+        ...searchWhere,
+        ...categoryWhere,
+      },
+      orderBy: { date: "desc" },
+      take: 50,
+      include: { category: true },
+    });
 
   // Empty state: brand new user (no transactions ever)
   if (totalCountEver === 0) {
