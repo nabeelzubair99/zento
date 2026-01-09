@@ -34,11 +34,17 @@ model Category {
   @@unique([userId, name])
 }
 
+enum TransactionType {
+  EXPENSE
+  INCOME
+}
+
 model Transaction {
-  id          String    @id @default(cuid())
+  id          String          @id @default(cuid())
   userId      String
   date        DateTime
   amountCents Int
+  type        TransactionType @default(EXPENSE)
   description String
 
   // Phase 1 additions
@@ -46,11 +52,11 @@ model Transaction {
   flags       TransactionFlag[] @default([])
 
   categoryId  String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
-  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, date])
   @@index([userId, categoryId])

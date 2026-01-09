@@ -13,6 +13,16 @@ function json(data: unknown, init?: ResponseInit) {
   });
 }
 
+type TransactionType = "EXPENSE" | "INCOME";
+const ALLOWED_TYPES = new Set<TransactionType>(["EXPENSE", "INCOME"]);
+
+function parseTransactionType(input: unknown): TransactionType | null {
+  if (input === undefined || input === null) return null;
+  const raw = String(input).trim().toUpperCase();
+  if (ALLOWED_TYPES.has(raw as TransactionType)) return raw as TransactionType;
+  return null;
+}
+
 function parseMonth(month: string | null) {
   // expects "YYYY-MM"
   if (!month) return { ok: true as const, range: null as null };
@@ -75,7 +85,9 @@ async function assertCategoryBelongsToUser(userId: string, categoryId: string) {
  */
 const ALLOWED_FLAGS = new Set<TransactionFlag>(Object.values(TransactionFlag));
 
-function parseFlags(input: unknown): { ok: true; value: TransactionFlag[] | undefined } | { ok: false; error: string } {
+function parseFlags(
+  input: unknown
+): { ok: true; value: TransactionFlag[] | undefined } | { ok: false; error: string } {
   // Accept:
   // - undefined => no-op (PATCH can omit)
   // - null => clear (becomes [])
@@ -182,15 +194,19 @@ export async function POST(req: Request) {
   }
 
   const amountCentsRaw = body?.amountCents;
-  const amountCents =
+  const amountCentsInput =
     typeof amountCentsRaw === "string" ? Number(amountCentsRaw) : amountCentsRaw;
 
-  if (!Number.isInteger(amountCents)) {
+  if (!Number.isInteger(amountCentsInput)) {
     return json({ error: "amountCents must be an integer" }, { status: 400 });
   }
 
-  if (Math.abs(amountCents) > 10_000_000_00) {
+  if (Math.abs(amountCentsInput) > 10_000_000_00) {
     return json({ error: "amountCents is out of bounds" }, { status: 400 });
+  }
+
+  if (amountCentsInput === 0) {
+    return json({ error: "amountCents cannot be 0" }, { status: 400 });
   }
 
   if (!description) {
@@ -203,11 +219,24 @@ export async function POST(req: Request) {
     if (!ok) return json({ error: "Invalid categoryId" }, { status: 400 });
   }
 
+  // NEW: accept explicit type, otherwise infer from sign for backward compatibility
+  const typeFromBody = parseTransactionType(body?.type);
+  if (body?.type !== undefined && !typeFromBody) {
+    return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+  }
+
+  const inferredType: TransactionType = amountCentsInput < 0 ? "INCOME" : "EXPENSE";
+  const type: TransactionType = typeFromBody ?? inferredType;
+
+  // Canonical: store positive cents in DB
+  const amountCents = Math.abs(amountCentsInput);
+
   const created = await prisma.transaction.create({
     data: {
       userId,
       date,
       amountCents,
+      type, // <-- requires schema update (next step)
       description,
       notes,
       flags,
@@ -222,7 +251,7 @@ export async function POST(req: Request) {
 /**
  * PATCH /api/finance/transactions?id=TRANSACTION_ID
  * Body supports partial updates:
- * { description?, amountCents?, date?, notes?, flags?, categoryId? (string|null) }
+ * { description?, amountCents?, type?, date?, notes?, flags?, categoryId? (string|null) }
  */
 export async function PATCH(req: Request) {
   const userId = await getAuthedUserId();
@@ -241,7 +270,7 @@ export async function PATCH(req: Request) {
   // Ensure the transaction belongs to this user
   const existing = await prisma.transaction.findFirst({
     where: { id, userId },
-    select: { id: true },
+    select: { id: true, type: true, amountCents: true },
   });
 
   if (!existing) return json({ error: "Not found" }, { status: 404 });
@@ -254,17 +283,34 @@ export async function PATCH(req: Request) {
     data.description = description;
   }
 
+  // NEW: type can be updated
+  if (body?.type !== undefined) {
+    const t = parseTransactionType(body.type);
+    if (!t) return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    data.type = t;
+  }
+
   if (body?.amountCents !== undefined) {
     const raw = body.amountCents;
-    const amountCents = typeof raw === "string" ? Number(raw) : raw;
+    const amountCentsInput = typeof raw === "string" ? Number(raw) : raw;
 
-    if (!Number.isInteger(amountCents)) {
+    if (!Number.isInteger(amountCentsInput)) {
       return json({ error: "amountCents must be an integer" }, { status: 400 });
     }
-    if (Math.abs(amountCents) > 10_000_000_00) {
+    if (Math.abs(amountCentsInput) > 10_000_000_00) {
       return json({ error: "amountCents is out of bounds" }, { status: 400 });
     }
-    data.amountCents = amountCents;
+    if (amountCentsInput === 0) {
+      return json({ error: "amountCents cannot be 0" }, { status: 400 });
+    }
+
+    // Backward compatible behavior:
+    // - if client sends negative amount and no explicit type in this PATCH, infer type from sign
+    // - always store absolute cents
+    if (body?.type === undefined) {
+      data.type = amountCentsInput < 0 ? "INCOME" : "EXPENSE";
+    }
+    data.amountCents = Math.abs(amountCentsInput);
   }
 
   if (body?.date !== undefined) {

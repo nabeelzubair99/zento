@@ -3,15 +3,27 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 
-function parseAmountToCents(input: string): number | null {
-  // Accepts: "12.34", "$12.34", "1,234.56"
-  const cleaned = input.replace(/[$,\s]/g, "");
+type TransactionType = "EXPENSE" | "INCOME";
+
+function parseAmountToCentsWithSign(
+  input: string
+): { centsAbs: number; sign: 1 | -1 } | null {
+  // Accepts: "-12.34", "$-12.34", "-$12.34", "1,234.56", "  $ 12.34  "
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // If the user includes a '-', treat it as negative (we'll map that to INCOME in the UI).
+  const sign: 1 | -1 = trimmed.includes("-") ? -1 : 1;
+
+  // Remove common formatting chars and the minus sign for numeric parsing.
+  const cleaned = trimmed.replace(/[-$,\s]/g, "");
   if (!cleaned) return null;
 
   const num = Number(cleaned);
   if (!Number.isFinite(num)) return null;
 
-  return Math.round(num * 100);
+  const centsAbs = Math.round(Math.abs(num) * 100);
+  return { centsAbs, sign };
 }
 
 async function readApiError(res: Response) {
@@ -49,6 +61,10 @@ export function AddTransactionForm() {
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(true);
   const [categoryId, setCategoryId] = React.useState<string>(""); // "" = Uncategorized
+
+  // Amount + type (Expense/Income)
+  const [txType, setTxType] = React.useState<TransactionType>("EXPENSE");
+  const [amountText, setAmountText] = React.useState("");
 
   // Notes + flags (Phase 1)
   const [showDetails, setShowDetails] = React.useState(false);
@@ -123,6 +139,32 @@ export function AddTransactionForm() {
     }
   };
 
+  const flipSign = () => {
+    // iOS decimal keypad often has no "-" key. This gives users a reliable way to flip.
+    const hasMinus = amountText.trim().startsWith("-");
+    const next = hasMinus ? amountText.replace(/^\s*-\s*/, "") : `-${amountText}`;
+    setAmountText(next);
+
+    // Keep toggle in sync with the sign.
+    setTxType(hasMinus ? "EXPENSE" : "INCOME");
+  };
+
+  const setTypeAndNormalizeSign = (nextType: TransactionType) => {
+    setTxType(nextType);
+    const trimmed = amountText.trim();
+    const hasMinus = trimmed.startsWith("-");
+
+    if (nextType === "INCOME" && !hasMinus) {
+      // Add a '-' so the user can also paste/type and see it reflected.
+      setAmountText(trimmed ? `-${trimmed}` : "-");
+      return;
+    }
+
+    if (nextType === "EXPENSE" && hasMinus) {
+      setAmountText(trimmed.replace(/^\s*-\s*/, ""));
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (isSaving) return;
@@ -137,7 +179,6 @@ export function AddTransactionForm() {
         form.elements.namedItem("description") as HTMLInputElement
       ).value.trim();
 
-      const amountRaw = (form.elements.namedItem("amount") as HTMLInputElement).value;
       const date = (form.elements.namedItem("date") as HTMLInputElement).value;
 
       if (!description) {
@@ -145,16 +186,16 @@ export function AddTransactionForm() {
         return;
       }
 
-      const amountCents = parseAmountToCents(amountRaw);
-      if (amountCents === null) {
+      const parsed = parseAmountToCentsWithSign(amountText);
+      if (parsed === null) {
         setError("Enter a valid amount (example: 12.34).");
         return;
       }
-      if (!Number.isInteger(amountCents)) {
+      if (!Number.isInteger(parsed.centsAbs)) {
         setError("Amount must be a valid number.");
         return;
       }
-      if (amountCents === 0) {
+      if (parsed.centsAbs === 0) {
         setError("Amount cannot be 0.00.");
         return;
       }
@@ -164,12 +205,15 @@ export function AddTransactionForm() {
         return;
       }
 
+      // We store a positive amount in cents, and separately store type.
+      // (Your API route will need to accept "type" too; if not yet, it can ignore it.)
       const res = await fetch("/api/finance/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description,
-          amountCents,
+          amountCents: parsed.centsAbs,
+          type: txType, // EXPENSE | INCOME
           date,
           categoryId: categoryId || null,
           notes: notes.trim() ? notes.trim() : null,
@@ -183,6 +227,9 @@ export function AddTransactionForm() {
       }
 
       form.reset();
+      setAmountText("");
+      setTxType("EXPENSE");
+
       setCategoryId("");
       setShowCreateCategory(false);
 
@@ -221,9 +268,77 @@ export function AddTransactionForm() {
             gap: 10,
           }}
         >
-          {/* Amount with $ prefix */}
+          {/* Amount with $ prefix + type toggle + +/- button */}
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Amount</label>
+
+            {/* Type toggle */}
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <div
+                style={{
+                  display: "inline-flex",
+                  border: "1px solid rgb(var(--border))",
+                  borderRadius: 999,
+                  overflow: "hidden",
+                  background: "rgb(var(--surface))",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setTypeAndNormalizeSign("EXPENSE")}
+                  disabled={disabledAny}
+                  style={{
+                    borderRadius: 0,
+                    padding: "8px 12px",
+                    fontWeight: 650,
+                    background:
+                      txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                  }}
+                >
+                  Expense
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setTypeAndNormalizeSign("INCOME")}
+                  disabled={disabledAny}
+                  style={{
+                    borderRadius: 0,
+                    padding: "8px 12px",
+                    fontWeight: 650,
+                    background:
+                      txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                  }}
+                >
+                  Income
+                </button>
+              </div>
+
+              {/* Helpful on iOS where '-' is missing on the decimal keypad */}
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={flipSign}
+                disabled={disabledAny}
+                title="Flip sign"
+              >
+                ±
+              </button>
+
+              <span className="subtle" style={{ fontSize: 12 }}>
+                Tip: use “-” for income/refunds
+              </span>
+            </div>
+
+            {/* Amount input */}
             <div
               style={{
                 display: "flex",
@@ -245,6 +360,16 @@ export function AddTransactionForm() {
                 inputMode="decimal"
                 placeholder="12.34"
                 disabled={disabledAny}
+                value={amountText}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAmountText(next);
+
+                  // If user types/pastes a '-', auto-switch to INCOME.
+                  // If they remove '-', auto-switch back to EXPENSE.
+                  const hasMinus = next.trim().startsWith("-");
+                  setTxType(hasMinus ? "INCOME" : "EXPENSE");
+                }}
                 style={{
                   border: "none",
                   boxShadow: "none",
@@ -257,7 +382,13 @@ export function AddTransactionForm() {
 
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Date</label>
-            <input className="input" name="date" required type="date" disabled={disabledAny} />
+            <input
+              className="input"
+              name="date"
+              required
+              type="date"
+              disabled={disabledAny}
+            />
           </div>
         </div>
 
@@ -270,7 +401,9 @@ export function AddTransactionForm() {
             disabled={disabledAny || isLoadingCategories}
             style={{ maxWidth: 360 }}
           >
-            <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
+            <option value="">
+              {isLoadingCategories ? "Loading…" : "Uncategorized"}
+            </option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -278,7 +411,14 @@ export function AddTransactionForm() {
             ))}
           </select>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
             <button
               type="button"
               className="btn btn-ghost"
@@ -289,7 +429,9 @@ export function AddTransactionForm() {
               disabled={disabledAny}
               style={{ justifySelf: "flex-start" }}
             >
-              {showCreateCategory ? "Hide category creator" : "Create a new category"}
+              {showCreateCategory
+                ? "Hide category creator"
+                : "Create a new category"}
             </button>
 
             <button
@@ -324,7 +466,11 @@ export function AddTransactionForm() {
                 disabled={disabledAny}
                 rows={3}
                 placeholder="Add a little context… (what was this for, how did it feel?)"
-                style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
+                style={{
+                  resize: "vertical",
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                }}
               />
             </div>
 
@@ -371,7 +517,14 @@ export function AddTransactionForm() {
               <div className="subtle">Example: Food, Rent, Utilities</div>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
               <input
                 className="input"
                 value={newCategoryName}
@@ -387,25 +540,43 @@ export function AddTransactionForm() {
                 style={{ minWidth: 240 }}
               />
 
-              <button className="btn btn-secondary" type="button" onClick={onCreateCategory} disabled={disabledAny}>
+              <button
+                className="btn btn-secondary"
+                type="button"
+                onClick={onCreateCategory}
+                disabled={disabledAny}
+              >
                 {isCreatingCategory ? "Creating..." : "Create"}
               </button>
             </div>
 
             {categoryError ? (
-              <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{categoryError}</div>
+              <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
+                {categoryError}
+              </div>
             ) : null}
           </div>
         ) : null}
       </div>
 
       {/* Footer actions */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
         <button className="btn btn-primary" type="submit" disabled={disabledAny}>
           {isSaving ? "Saving..." : "Add transaction"}
         </button>
 
-        {error ? <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span> : null}
+        {error ? (
+          <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
+            {error}
+          </span>
+        ) : null}
       </div>
     </form>
   );
