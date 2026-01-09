@@ -4,7 +4,6 @@ import { authOptions } from "@/lib/auth";
 import { AddTransactionForm } from "./AddTransactionForm";
 import { prisma } from "@/lib/prisma";
 import { TransactionRow } from "./TransactionRow";
-import type { Prisma } from "@prisma/client";
 
 function formatMoney(amountCents: number) {
   return new Intl.NumberFormat("en-US", {
@@ -284,9 +283,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
               <b>{formatMoney(monthTotalCents)}</b>.
               {filtersActive ? " (With your current filters.)" : ""}
             </div>
-            <div className="subtle">
-              A quiet check-in: does this month feel aligned with what you care about?
-            </div>
+            <div className="subtle">A quiet check-in: does this month feel aligned with what you care about?</div>
           </div>
         </div>
       </section>
@@ -321,13 +318,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label className="subtle">Month</label>
-                <input
-                  className="input"
-                  type="month"
-                  name="month"
-                  defaultValue={month}
-                  style={{ width: "fit-content" }}
-                />
+                <input className="input" type="month" name="month" defaultValue={month} style={{ width: "fit-content" }} />
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
@@ -391,6 +382,17 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   );
 }
 
+type TxItem = {
+  id: string;
+  description: string;
+  amountCents: number;
+  date: Date;
+  categoryId: string | null;
+  notes: string | null;
+  category: { name: string } | null;
+  flags?: unknown;
+};
+
 async function TransactionsList({
   userId,
   q,
@@ -421,18 +423,17 @@ async function TransactionsList({
         : { categoryId }
       : {};
 
-  const items: Prisma.TransactionGetPayload<{ include: { category: true } }>[] =
-    await prisma.transaction.findMany({
-      where: {
-        userId,
-        date: { gte: start, lt: end },
-        ...searchWhere,
-        ...categoryWhere,
-      },
-      orderBy: { date: "desc" },
-      take: 50,
-      include: { category: true },
-    });
+  const items: TxItem[] = await prisma.transaction.findMany({
+    where: {
+      userId,
+      date: { gte: start, lt: end },
+      ...searchWhere,
+      ...categoryWhere,
+    },
+    orderBy: { date: "desc" },
+    take: 50,
+    include: { category: { select: { name: true } } },
+  });
 
   // Empty state: brand new user (no transactions ever)
   if (totalCountEver === 0) {
@@ -460,9 +461,7 @@ async function TransactionsList({
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>No matches</div>
         <div className="subtle">
-          {hasFilters
-            ? "Try adjusting month, search, or category."
-            : "There aren’t any transactions for this month yet."}
+          {hasFilters ? "Try adjusting month, search, or category." : "There aren’t any transactions for this month yet."}
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
