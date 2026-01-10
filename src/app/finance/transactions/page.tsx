@@ -7,25 +7,12 @@ import { TransactionRow } from "./TransactionRow";
 
 type TransactionType = "EXPENSE" | "INCOME";
 
-function formatMoney(amountCents: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amountCents / 100);
-}
-
 function formatDate(d: Date) {
   return new Intl.DateTimeFormat("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
   }).format(d);
-}
-
-function formatMonthLabel(yyyyMm: string) {
-  const [y, m] = yyyyMm.split("-").map(Number);
-  const d = new Date(Date.UTC(y, m - 1, 1));
-  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(d);
 }
 
 function currentMonthYYYYMM() {
@@ -56,24 +43,12 @@ function buildQueryString(params: Record<string, string | undefined>) {
 function buildSearchWhere(q: string) {
   const query = q.trim();
   if (!query) return {};
-  // Search description OR notes (calm: users often remember context, not merchant text)
   return {
     OR: [
       { description: { contains: query, mode: "insensitive" as const } },
       { notes: { contains: query, mode: "insensitive" as const } },
     ],
   };
-}
-
-/**
- * Compute a "net" total using the canonical model:
- * - amountCents is always positive
- * - EXPENSE subtracts, INCOME adds
- */
-function netFromGroupedSums(grouped: Array<{ type: TransactionType; _sum: { amountCents: number | null } }>) {
-  const income = grouped.find((g) => g.type === "INCOME")?._sum.amountCents ?? 0;
-  const expense = grouped.find((g) => g.type === "EXPENSE")?._sum.amountCents ?? 0;
-  return income - expense;
 }
 
 type PageProps = {
@@ -143,13 +118,15 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
     );
   }
 
-  const q = (params?.q ?? "").trim();
-  const month = parseMonthParam(params?.month) || currentMonthYYYYMM();
-  const categoryId = (params?.categoryId ?? "").trim(); // "" | "uncategorized" | real id
   const showFilters = params?.filters === "1";
 
+  // Filters are only meaningful when showFilters is true.
+  const q = showFilters ? (params?.q ?? "").trim() : "";
+  const month = showFilters ? (parseMonthParam(params?.month) || currentMonthYYYYMM()) : "";
+  const categoryId = showFilters ? (params?.categoryId ?? "").trim() : "";
+
   const baseParams = {
-    month,
+    month: month || undefined,
     q: q || undefined,
     categoryId: categoryId || undefined,
   };
@@ -160,107 +137,40 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   })}`;
 
   const hideFiltersHref = `/finance/transactions${buildQueryString({
-    ...baseParams,
-    // omit filters
+    // when hiding filters, we intentionally drop q/month/category
   })}`;
 
   const resetHref = `/finance/transactions${buildQueryString({
     month: currentMonthYYYYMM(),
-    // keep filters hidden on reset
   })}`;
 
-  // For dropdown (only needed when filters shown, but cheap enough)
   const categories: { id: string; name: string }[] = await prisma.category.findMany({
     where: { userId: user.id },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
 
-  // Count total transactions ever (for first-time empty state)
   const totalCountEver = await prisma.transaction.count({
     where: { userId: user.id },
   });
 
-  const searchWhere = buildSearchWhere(q);
-
-  const categoryWhere =
-    categoryId && categoryId !== ""
-      ? categoryId === "uncategorized"
-        ? { categoryId: null }
-        : { categoryId }
-      : {};
-
-  // ✅ ALL-TIME net total (respects q/category filters, but NOT month)
-  const totalGrouped = await prisma.transaction.groupBy({
-    by: ["type"],
-    where: {
-      userId: user.id,
-      ...searchWhere,
-      ...categoryWhere,
-    },
-    _sum: { amountCents: true },
-  });
-
-  const allTimeTotalCents = netFromGroupedSums(totalGrouped as any);
-  const totalIsPositive = allTimeTotalCents >= 0;
-
-  // Month range (UTC)
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(Date.UTC(y, m - 1, 1));
-  const end = new Date(Date.UTC(y, m, 1));
-
-  // Gentle month summary (respects current month + filters)
-  const monthGrouped = await prisma.transaction.groupBy({
-    by: ["type"],
-    where: {
-      userId: user.id,
-      date: { gte: start, lt: end },
-      ...searchWhere,
-      ...categoryWhere,
-    },
-    _sum: { amountCents: true },
-  });
-
-  const monthCount = await prisma.transaction.count({
-    where: {
-      userId: user.id,
-      date: { gte: start, lt: end },
-      ...searchWhere,
-      ...categoryWhere,
-    },
-  });
-
-  const monthTotalCents = netFromGroupedSums(monthGrouped as any);
-
-  const monthLabel = formatMonthLabel(month);
-  const filtersActive = !!(q || categoryId);
+  const filtersActive = showFilters && !!(q || categoryId || month);
 
   return (
-    <main style={{ display: "grid", gap: 20 }}>
-      {/* Header / summary */}
-      <section className="card card--raised">
+    <main className="min-h-screen flex flex-col gap-5">
+      {/* Header */}
+      <section className="card card--raised shrink-0">
         <div className="card-header" style={{ alignItems: "flex-end" }}>
           <div style={{ display: "grid", gap: 6 }}>
             <h1 className="h1" style={{ margin: 0 }}>
               Transactions
             </h1>
-
             <div className="subtle">Signed in as {email}</div>
-
-            <div
-              className={`amount ${totalIsPositive ? "amount-positive" : "amount-negative"}`}
-              style={{ fontSize: 26, fontWeight: 700 }}
-            >
-              {formatMoney(allTimeTotalCents)}
-            </div>
-
-            <div className="subtle">
-              All-time total
-              {filtersActive ? " (respects current filters)" : " across your entire history."}
-            </div>
 
             {filtersActive ? (
               <div className="subtle">
+                {month ? `Month: ${month}` : ""}
+                {month && (q || categoryId) ? " • " : ""}
                 {q ? `Search: “${q}”` : ""}
                 {q && categoryId ? " • " : ""}
                 {categoryId
@@ -269,7 +179,9 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                     : "Category filter applied"
                   : ""}
               </div>
-            ) : null}
+            ) : (
+              <div className="subtle">Showing your last 5 entries.</div>
+            )}
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -294,24 +206,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      {/* Gentle monthly summary (no charts) */}
-      <section className="card">
-        <div className="card-header">
-          <div style={{ display: "grid", gap: 6 }}>
-            <div className="h2">This month</div>
-            <div className="subtle">
-              In {monthLabel}, you logged <b>{monthCount}</b>{" "}
-              {monthCount === 1 ? "transaction" : "transactions"} totaling{" "}
-              <b>{formatMoney(monthTotalCents)}</b>.
-              {filtersActive ? " (With your current filters.)" : ""}
-            </div>
-            <div className="subtle">A quiet check-in: does this month feel aligned with what you care about?</div>
-          </div>
-        </div>
-      </section>
-
       {/* Add */}
-      <section className="card">
+      <section className="card shrink-0">
         <div className="card-header">
           <div>
             <div className="h2">Add a transaction</div>
@@ -323,24 +219,23 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      {/* Filters (hidden by default) */}
+      {/* Filters (only when explicitly shown) */}
       {showFilters ? (
-        <section className="card">
+        <section className="card shrink-0">
           <div className="card-header">
             <div>
               <div className="h2">Filters</div>
-              <div className="subtle">Narrow down by month, keyword, or category.</div>
+              <div className="subtle">When filters are on, we show all matching transactions.</div>
             </div>
           </div>
 
           <div className="card-body">
             <form method="GET" style={{ display: "grid", gap: 14 }}>
-              {/* keep filters open after applying */}
               <input type="hidden" name="filters" value="1" />
 
               <div style={{ display: "grid", gap: 6 }}>
                 <label className="subtle">Month</label>
-                <input className="input" type="month" name="month" defaultValue={month} style={{ width: "fit-content" }} />
+                <input className="input" type="month" name="month" defaultValue={month || currentMonthYYYYMM()} style={{ width: "fit-content" }} />
               </div>
 
               <div style={{ display: "grid", gap: 6 }}>
@@ -371,7 +266,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
                 </Link>
 
                 <div className="subtle" style={{ marginLeft: "auto" }}>
-                  Tip: Use month + category to see patterns.
+                  Tip: Hide filters to go back to “last 5 entries”.
                 </div>
               </div>
             </form>
@@ -379,18 +274,21 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </section>
       ) : null}
 
-      {/* List */}
-      <section className="card">
-        <div className="card-header">
+      {/* List (scrolls if needed) */}
+      <section className="card flex-1 min-h-0 flex flex-col">
+        <div className="card-header shrink-0">
           <div>
-            <div className="h2">Recent transactions</div>
-            <div className="subtle">Latest items for {month} (up to 50).</div>
+            <div className="h2">{showFilters ? "Transactions" : "Recent transactions"}</div>
+            <div className="subtle">
+              {showFilters ? "Showing all matches." : "Showing your last 5 entries."}
+            </div>
           </div>
         </div>
 
-        <div className="card-body">
+        <div className="card-body flex-1 min-h-0 overflow-y-auto">
           <TransactionsList
             userId={user.id}
+            showFilters={showFilters}
             q={q}
             month={month}
             categoryId={categoryId}
@@ -418,6 +316,7 @@ type TxItem = {
 
 async function TransactionsList({
   userId,
+  showFilters,
   q,
   month,
   categoryId,
@@ -426,81 +325,79 @@ async function TransactionsList({
   showFiltersHref,
 }: {
   userId: string;
+  showFilters: boolean;
   q: string;
-  month: string;
+  month: string; // only meaningful when showFilters === true
   categoryId: string;
   totalCountEver: number;
   resetHref: string;
   showFiltersHref: string;
 }) {
-  const [y, m] = month.split("-").map(Number);
-  const start = new Date(Date.UTC(y, m - 1, 1));
-  const end = new Date(Date.UTC(y, m, 1));
-
-  const searchWhere = buildSearchWhere(q);
-
-  const categoryWhere =
-    categoryId && categoryId !== ""
-      ? categoryId === "uncategorized"
-        ? { categoryId: null }
-        : { categoryId }
-      : {};
-
-  const items: TxItem[] = await prisma.transaction.findMany({
-    where: {
-      userId,
-      date: { gte: start, lt: end },
-      ...searchWhere,
-      ...categoryWhere,
-    },
-    orderBy: { date: "desc" },
-    take: 50,
-    include: { category: { select: { name: true } } },
-  });
-
-  // Empty state: brand new user (no transactions ever)
+  // Brand new user (no transactions ever)
   if (totalCountEver === 0) {
     return (
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>You’re all set.</div>
-        <div className="subtle">
-          When you add your first transaction, it’ll show up here. Keep it simple — one entry is enough to start.
-        </div>
-        <div className="subtle">
-          If you’d like, you can also{" "}
-          <Link className="btn btn-ghost" href={showFiltersHref} style={{ padding: 0 }}>
-            open filters
-          </Link>{" "}
-          later to explore patterns by month and category.
-        </div>
+        <div className="subtle">Add your first transaction and it’ll show up here.</div>
       </div>
     );
   }
 
-  // Empty state: no matches for current filters/month
+  let items: TxItem[] = [];
+
+  if (!showFilters) {
+    // ✅ MODE A: ignore ALL filters, show last 5 entries (most recently created)
+    items = await prisma.transaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" }, // requires Transaction.createdAt in Prisma schema
+      take: 5,
+      include: { category: { select: { name: true } } },
+    });
+  } else {
+    // ✅ MODE B: filters are ON -> show ALL matches
+    const searchWhere = buildSearchWhere(q);
+
+    const categoryWhere =
+      categoryId && categoryId !== ""
+        ? categoryId === "uncategorized"
+          ? { categoryId: null }
+          : { categoryId }
+        : {};
+
+    const monthValue = parseMonthParam(month) || currentMonthYYYYMM();
+    const [y, m] = monthValue.split("-").map(Number);
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 1));
+
+    items = await prisma.transaction.findMany({
+      where: {
+        userId,
+        date: { gte: start, lt: end },
+        ...searchWhere,
+        ...categoryWhere,
+      },
+      orderBy: [{ date: "desc" }, { createdAt: "desc" }], // stable ordering
+      // no `take` => show all matches
+      include: { category: { select: { name: true } } },
+    });
+  }
+
   if (items.length === 0) {
-    const hasFilters = !!(q || categoryId);
+    if (!showFilters) {
+      return <div className="subtle">No transactions yet.</div>;
+    }
     return (
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>No matches</div>
-        <div className="subtle">
-          {hasFilters ? "Try adjusting month, search, or category." : "There aren’t any transactions for this month yet."}
-        </div>
+        <div className="subtle">Try adjusting month, search, or category.</div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <Link className="btn btn-secondary" href={showFiltersHref}>
-            Show filters
+            Adjust filters
           </Link>
-
           <Link className="btn" href={resetHref}>
             Go to current month
           </Link>
-
-          {hasFilters ? (
-            <div className="subtle">Tip: clearing search is often the fastest reset.</div>
-          ) : (
-            <div className="subtle">Tip: add one entry and the month will start taking shape.</div>
-          )}
         </div>
       </div>
     );
@@ -509,14 +406,9 @@ async function TransactionsList({
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-        <div style={{ display: "grid", gap: 2 }}>
-          <span className="subtle">
-            Showing {items.length} (last 50) • {month}
-            {q ? ` • search: “${q}”` : ""}
-            {categoryId ? ` • ${categoryId === "uncategorized" ? "Uncategorized" : "Category filter"}` : ""}
-          </span>
-        </div>
-
+        <span className="subtle">
+          {showFilters ? `Showing ${items.length}` : `Showing ${items.length} (last 5 entries)`}
+        </span>
         <span className="subtle">Amount</span>
       </div>
 

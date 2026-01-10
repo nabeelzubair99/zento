@@ -8,14 +8,11 @@ type TransactionType = "EXPENSE" | "INCOME";
 function parseAmountToCentsWithSign(
   input: string
 ): { centsAbs: number; sign: 1 | -1 } | null {
-  // Accepts: "-12.34", "$-12.34", "-$12.34", "1,234.56", "  $ 12.34  "
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Convention (UI): EXPENSE is negative, INCOME is positive.
   const sign: 1 | -1 = trimmed.includes("-") ? -1 : 1;
 
-  // Remove common formatting chars and the minus sign for numeric parsing.
   const cleaned = trimmed.replace(/[-$,\s]/g, "");
   if (!cleaned) return null;
 
@@ -234,6 +231,7 @@ export function AddTransactionForm() {
 
       setCategoryId("");
       setShowCreateCategory(false);
+      setCategoryError(null); // ✅ small cleanup
 
       setShowDetails(false);
       setNotes("");
@@ -338,7 +336,7 @@ export function AddTransactionForm() {
               </span>
             </div>
 
-            {/* Amount input (single shell, no nested box) */}
+            {/* Amount input */}
             <div
               style={{
                 display: "flex",
@@ -383,7 +381,7 @@ export function AddTransactionForm() {
                   border: "none",
                   outline: "none",
                   background: "transparent",
-                  padding: "11px 0", // match .input vertical rhythm
+                  padding: "11px 0",
                   fontSize: 14,
                   color: "rgb(var(--text))",
                 }}
@@ -393,13 +391,7 @@ export function AddTransactionForm() {
 
           <div style={{ display: "grid", gap: 6 }}>
             <label className="subtle">Date</label>
-            <input
-              className="input"
-              name="date"
-              required
-              type="date"
-              disabled={disabledAny}
-            />
+            <input className="input" name="date" required type="date" disabled={disabledAny} />
           </div>
         </div>
 
@@ -412,9 +404,7 @@ export function AddTransactionForm() {
             disabled={disabledAny || isLoadingCategories}
             style={{ maxWidth: 360 }}
           >
-            <option value="">
-              {isLoadingCategories ? "Loading…" : "Uncategorized"}
-            </option>
+            <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -422,14 +412,7 @@ export function AddTransactionForm() {
             ))}
           </select>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <button
               type="button"
               className="btn btn-ghost"
@@ -440,9 +423,7 @@ export function AddTransactionForm() {
               disabled={disabledAny}
               style={{ justifySelf: "flex-start" }}
             >
-              {showCreateCategory
-                ? "Hide category creator"
-                : "Create a new category"}
+              {showCreateCategory ? "Hide category creator" : "Create a new category"}
             </button>
 
             <button
@@ -456,7 +437,7 @@ export function AddTransactionForm() {
           </div>
         </div>
 
-        {/* Notes + flags (secondary panel) */}
+        {/* Notes + flags */}
         {showDetails ? (
           <div
             style={{
@@ -477,11 +458,7 @@ export function AddTransactionForm() {
                 disabled={disabledAny}
                 rows={3}
                 placeholder="Add a little context… (what was this for, how did it feel?)"
-                style={{
-                  resize: "vertical",
-                  paddingTop: 10,
-                  paddingBottom: 10,
-                }}
+                style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
               />
             </div>
 
@@ -511,7 +488,7 @@ export function AddTransactionForm() {
           </div>
         ) : null}
 
-        {/* Create category (secondary panel) */}
+        {/* Create category */}
         {showCreateCategory ? (
           <div
             style={{
@@ -528,14 +505,7 @@ export function AddTransactionForm() {
               <div className="subtle">Example: Food, Rent, Utilities</div>
             </div>
 
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <input
                 className="input"
                 value={newCategoryName}
@@ -551,43 +521,23 @@ export function AddTransactionForm() {
                 style={{ minWidth: 240 }}
               />
 
-              <button
-                className="btn btn-secondary"
-                type="button"
-                onClick={onCreateCategory}
-                disabled={disabledAny}
-              >
+              <button className="btn btn-secondary" type="button" onClick={onCreateCategory} disabled={disabledAny}>
                 {isCreatingCategory ? "Creating..." : "Create"}
               </button>
             </div>
 
-            {categoryError ? (
-              <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
-                {categoryError}
-              </div>
-            ) : null}
+            {categoryError ? <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{categoryError}</div> : null}
           </div>
         ) : null}
       </div>
 
       {/* Footer actions */}
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn btn-primary" type="submit" disabled={disabledAny}>
           {isSaving ? "Saving..." : "Add transaction"}
         </button>
 
-        {error ? (
-          <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>
-            {error}
-          </span>
-        ) : null}
+        {error ? <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span> : null}
       </div>
     </form>
   );
