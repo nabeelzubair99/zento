@@ -83,25 +83,15 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
   });
 
   return (
-    <main className="min-h-screen flex flex-col gap-5">
-      {/* Page header row (title left, signed-in right under nav icons visually) */}
+    <main className="z-page">
+      {/* Page header row */}
       <section className="card card--raised shrink-0">
-        <div
-          className="card-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-end",
-            gap: 16,
-          }}
-        >
+        <div className="card-header z-txHeader">
           <h1 className="h1" style={{ margin: 0 }}>
             Transactions
           </h1>
 
-          <div className="subtle" style={{ textAlign: "right" }}>
-            Signed in as {email}
-          </div>
+          <div className="subtle z-txSignedIn">Signed in as {email}</div>
         </div>
       </section>
 
@@ -127,7 +117,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           </div>
         </div>
 
-        <div className="card-body flex-1 min-h-0 overflow-y-auto">
+        <div className="card-body flex-1 min-h-0 overflow-y-auto z-scrollArea">
           <TransactionsList userId={user.id} totalCountEver={totalCountEver} />
         </div>
       </section>
@@ -138,8 +128,8 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
 type TxItem = {
   id: string;
   description: string;
-  amountCents: number; // ✅ stored as absolute cents in DB
-  type: TransactionType; // ✅ stored explicitly in DB
+  amountCents: number;
+  type: TransactionType;
   date: Date;
   categoryId: string | null;
   notes: string | null;
@@ -158,14 +148,11 @@ async function TransactionsList({
     return (
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>You’re all set.</div>
-        <div className="subtle">
-          Add your first transaction and it’ll show up here.
-        </div>
+        <div className="subtle">Add your first transaction and it’ll show up here.</div>
       </div>
     );
   }
 
-  // ✅ Select explicitly so TS knows `type` exists (and Prisma returns it)
   const items: TxItem[] = await prisma.transaction.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
@@ -174,7 +161,7 @@ async function TransactionsList({
       id: true,
       description: true,
       amountCents: true,
-      type: true, // ✅ this is the key fix
+      type: true,
       date: true,
       categoryId: true,
       notes: true,
@@ -189,14 +176,8 @@ async function TransactionsList({
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          gap: 12,
-        }}
-      >
+      {/* Desktop-only list header row */}
+      <div className="z-txListHeader">
         <span className="subtle">Showing {items.length} (last 5 entries)</span>
         <span className="subtle">Amount</span>
       </div>
@@ -211,20 +192,12 @@ async function TransactionsList({
         }}
       >
         {items.map((t) => (
-          <li
-            key={t.id}
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.6)",
-            }}
-          >
+          <li key={t.id} className="z-txCard">
             <TransactionRow
               id={t.id}
               description={t.description}
-              amountCents={t.amountCents} // ✅ already absolute, no Math.abs needed
-              type={t.type} // ✅ use real type from DB
+              amountCents={t.amountCents}
+              type={t.type}
               dateISO={t.date.toISOString()}
               formattedDate={formatDate(t.date)}
               categoryId={t.categoryId}

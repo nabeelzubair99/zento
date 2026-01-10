@@ -12,7 +12,6 @@ type NavItem = {
 };
 
 function isActivePath(pathname: string, href: string) {
-  // Active when exact match OR nested route (e.g. /dashboard?range=this)
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -47,36 +46,11 @@ function IconDashboard({ active }: { active: boolean }) {
       aria-hidden="true"
       style={{ opacity: active ? 1 : 0.8 }}
     >
-      <path
-        d="M4 19V5"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M4 19h16"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8 16v-5"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 16V8"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M16 16v-3"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M4 19V5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M4 19h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M8 16v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M12 16V8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M16 16v-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -139,19 +113,16 @@ export function NavBar({
       href: homeHref,
       label: "Home",
       icon: <IconHome active={isActivePath(pathname, homeHref)} />,
-      kind: "link",
     },
     {
       href: dashboardHref,
       label: "Dashboard",
       icon: <IconDashboard active={isActivePath(pathname, dashboardHref)} />,
-      kind: "link",
     },
     {
       href: reportsHref,
       label: "Reports",
       icon: <IconFilter active={isActivePath(pathname, reportsHref)} />,
-      kind: "link",
     },
     {
       href: "/api/auth/signout",
@@ -162,39 +133,103 @@ export function NavBar({
   ];
 
   return (
-    <div style={{ display: "flex", gap: 10 }}>
-      {items.map((it) => {
-        const commonStyle: React.CSSProperties = {
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 40,
-          height: 40,
-          borderRadius: 12,
-          border: "1px solid rgb(var(--border))",
-          background: "rgb(var(--surface))",
-        };
+    <>
+      {/* Desktop nav (unchanged) */}
+      <div className="navDesktop" style={{ display: "flex", gap: 10 }}>
+        {items.map((it) => {
+          const active = it.kind !== "logout" && isActivePath(pathname, it.href);
 
-        const active =
-          it.kind === "link" && isActivePath(pathname, it.href);
+          return (
+            <Link
+              key={it.label}
+              href={it.href}
+              aria-label={it.label}
+              title={it.label}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 40,
+                height: 40,
+                borderRadius: 12,
+                border: "1px solid rgb(var(--border))",
+                background: "rgb(var(--surface))",
+                boxShadow: active ? "0 0 0 3px rgba(0,0,0,0.06)" : undefined,
+              }}
+            >
+              {it.icon}
+            </Link>
+          );
+        })}
+      </div>
 
-        const style: React.CSSProperties = active
-          ? { ...commonStyle, boxShadow: "0 0 0 3px rgba(0,0,0,0.06)" }
-          : commonStyle;
+      {/* Mobile bottom nav */}
+      <nav className="navMobile">
+        {items.map((it) => {
+          const active = it.kind !== "logout" && isActivePath(pathname, it.href);
 
-        return (
-          <Link
-            key={it.label}
-            href={it.href}
-            className="btn btn-ghost"
-            aria-label={it.label}
-            title={it.label}
-            style={style}
-          >
-            {it.icon}
-          </Link>
-        );
-      })}
-    </div>
+          return (
+            <Link
+              key={it.label}
+              href={it.href}
+              className={`navMobileItem ${active ? "isActive" : ""}`}
+            >
+              {it.icon}
+              <span>{it.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <style jsx>{`
+        .navMobile {
+          display: none;
+        }
+
+        @media (max-width: 768px) {
+          .navDesktop {
+            display: none !important;
+          }
+
+          .navMobile {
+            position: fixed;
+            left: 12px;
+            right: 12px;
+            bottom: 12px;
+            z-index: 50;
+
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+
+            padding: 10px;
+            border-radius: 18px;
+            border: 1px solid rgb(var(--border));
+            background: rgba(255, 255, 255, 0.86);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.12);
+
+            padding-bottom: calc(10px + env(safe-area-inset-bottom));
+          }
+
+          .navMobileItem {
+            display: grid;
+            place-items: center;
+            gap: 4px;
+            padding: 10px 6px;
+            border-radius: 14px;
+            text-decoration: none;
+            color: inherit;
+            font-size: 11px;
+            min-height: 54px;
+          }
+
+          .navMobileItem.isActive {
+            background: rgba(0, 0, 0, 0.05);
+            border: 1px solid rgb(var(--border));
+          }
+        }
+      `}</style>
+    </>
   );
 }

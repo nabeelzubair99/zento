@@ -202,24 +202,32 @@ export default async function DashboardPage({ searchParams }: PageProps) {
     .filter((r) => r.cents > 0)
     .sort((a, b) => b.cents - a.cents);
 
-  // --- Daily expense trend (month-only) ---
-  let dailySeries: Array<{ day: string; cents: number }> = [];
+  // --- Daily trend (month-only): expenses + income (for dual-line chart) ---
+  let dailySeries: Array<{ day: string; cents: number; incomeCents?: number }> = [];
   if (!useAllTime) {
     const dailyTx = await prisma.transaction.findMany({
-      where: { ...whereBase, type: "EXPENSE" },
-      select: { date: true, amountCents: true },
+      where: { ...whereBase, type: { in: ["EXPENSE", "INCOME"] } },
+      select: { date: true, amountCents: true, type: true },
       orderBy: { date: "asc" },
     });
 
-    const dailyMap = new Map<string, number>();
+    const dailyMap = new Map<string, { expense: number; income: number }>();
+
     for (const t of dailyTx) {
       const k = dayKeyUTC(t.date);
-      dailyMap.set(k, (dailyMap.get(k) ?? 0) + t.amountCents);
+      const cur = dailyMap.get(k) ?? { expense: 0, income: 0 };
+      if (t.type === "EXPENSE") cur.expense += t.amountCents;
+      if (t.type === "INCOME") cur.income += t.amountCents;
+      dailyMap.set(k, cur);
     }
 
     dailySeries = Array.from(dailyMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([day, cents]) => ({ day, cents }));
+      .map(([day, v]) => ({
+        day,
+        cents: v.expense,
+        incomeCents: v.income,
+      }));
   }
 
   // --- Navigation links ---
@@ -229,146 +237,88 @@ export default async function DashboardPage({ searchParams }: PageProps) {
   const isActive = (k: "this" | "last" | "all" | "month") => range === k;
 
   return (
-    <main style={{ display: "grid", gap: 20 }}>
-      <section className="card card--raised">
-        <div
-          className="card-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <h1 className="h1" style={{ margin: 0 }}>
-              Dashboard
-            </h1>
-            <div className="subtle">{titleLabel}</div>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
-            <Link
-              className={`btn ${isActive("this") ? "btn-secondary" : ""}`}
-              href={hrefThis}
-            >
-              This month
-            </Link>
-            <Link
-              className={`btn ${isActive("last") ? "btn-secondary" : ""}`}
-              href={hrefLast}
-            >
-              Last month
-            </Link>
-            <Link
-              className={`btn ${isActive("all") ? "btn-secondary" : ""}`}
-              href={hrefAll}
-            >
-              All time
-            </Link>
-
-            <form
-              method="GET"
-              action="/dashboard"
-              style={{ display: "flex", gap: 8, alignItems: "center" }}
-            >
-              <input type="hidden" name="range" value="month" />
-              <input
-                className="input"
-                type="month"
-                name="month"
-                defaultValue={selectedMonth}
-                style={{ width: "fit-content" }}
-              />
-              <button className="btn btn-primary" type="submit">
-                Go
-              </button>
-            </form>
-          </div>
-        </div>
-      </section>
-
-      {/* KPI row */}
-      <section className="card">
-        <div className="card-header">
-          <div className="h2">Summary</div>
-        </div>
-
-        <div
-          className="card-body"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-            gap: 12,
-          }}
-        >
-          <div
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.55)",
-            }}
-          >
-            <div className="subtle">Income</div>
-            <div style={{ fontSize: 20, fontWeight: 750 }}>
-              {formatMoney(incomeCents)}
+    <>
+      <main style={{ display: "grid", gap: 20 }}>
+        <section className="card card--raised">
+          <div className="card-header dashHeader">
+            <div style={{ display: "grid", gap: 6 }}>
+              <h1 className="h1" style={{ margin: 0 }}>
+                Dashboard
+              </h1>
+              <div className="subtle">{titleLabel}</div>
             </div>
-          </div>
 
-          <div
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.55)",
-            }}
-          >
-            <div className="subtle">Expenses</div>
-            <div style={{ fontSize: 20, fontWeight: 750 }}>
-              {formatMoney(expenseCents)}
-            </div>
-          </div>
-
-          <div
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.55)",
-            }}
-          >
-            <div className="subtle">Net</div>
-            <div style={{ fontSize: 20, fontWeight: 750 }}>
-              {formatMoney(netCents)}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Charts */}
-      {useAllTime ? (
-        <>
-          <DashboardCharts categoryRows={categoryRows} dailySeries={[]} />
-          <section className="card">
-            <div className="card-header">
-              <div>
-                <div className="h2">Daily trend</div>
-                <div className="subtle">Pick a month to see a daily trend.</div>
+            <div className="dashControls">
+              <div className="dashRangeBtns">
+                <Link className={`btn ${isActive("this") ? "btn-secondary" : ""}`} href={hrefThis}>
+                  This month
+                </Link>
+                <Link className={`btn ${isActive("last") ? "btn-secondary" : ""}`} href={hrefLast}>
+                  Last month
+                </Link>
+                <Link className={`btn ${isActive("all") ? "btn-secondary" : ""}`} href={hrefAll}>
+                  All time
+                </Link>
               </div>
+
+              <form method="GET" action="/dashboard" className="dashMonthForm">
+                <input type="hidden" name="range" value="month" />
+                <input
+                  className="input"
+                  type="month"
+                  name="month"
+                  defaultValue={selectedMonth}
+                  style={{ width: "fit-content" }}
+                />
+                <button className="btn btn-primary" type="submit">
+                  Go
+                </button>
+              </form>
             </div>
-          </section>
-        </>
-      ) : (
-        <DashboardCharts categoryRows={categoryRows} dailySeries={dailySeries} />
-      )}
-    </main>
+          </div>
+        </section>
+
+        {/* KPI row */}
+        <section className="card">
+          <div className="card-header">
+            <div className="h2">Summary</div>
+          </div>
+
+          <div className="card-body dashKpis">
+            <div className="dashKpiCard">
+              <div className="subtle">Income</div>
+              <div style={{ fontSize: 20, fontWeight: 750 }}>{formatMoney(incomeCents)}</div>
+            </div>
+
+            <div className="dashKpiCard">
+              <div className="subtle">Expenses</div>
+              <div style={{ fontSize: 20, fontWeight: 750 }}>{formatMoney(expenseCents)}</div>
+            </div>
+
+            <div className="dashKpiCard">
+              <div className="subtle">Net</div>
+              <div style={{ fontSize: 20, fontWeight: 750 }}>{formatMoney(netCents)}</div>
+            </div>
+          </div>
+        </section>
+
+        {/* Charts */}
+        {useAllTime ? (
+          <>
+            <DashboardCharts categoryRows={categoryRows} dailySeries={[]} />
+            <section className="card">
+              <div className="card-header">
+                <div>
+                  <div className="h2">Daily trend</div>
+                  <div className="subtle">Pick a month to see a daily trend.</div>
+                </div>
+              </div>
+            </section>
+          </>
+        ) : (
+          <DashboardCharts categoryRows={categoryRows} dailySeries={dailySeries} />
+        )}
+      </main>
+    </>
   );
 }

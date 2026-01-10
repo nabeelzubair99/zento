@@ -45,7 +45,6 @@ function formatMoneyFromCents(centsAbs: number, type: TransactionType) {
     style: "currency",
     currency: "USD",
   }).format(dollars);
-  // Intl already includes currency symbol; we just prefix '-' for expense.
   return `${sign}${formatted}`;
 }
 
@@ -72,13 +71,11 @@ export function TransactionRow(props: {
   dateISO: string;
   formattedDate: string;
 
-  // You can still pass these, but we will compute amount display from amountCents+type
   formattedAmount?: string;
 
   categoryId?: string | null;
   categoryName?: string | null;
 
-  // Phase 1 additions
   notes?: string | null;
   flags?: TxFlag[] | null;
 }) {
@@ -95,9 +92,7 @@ export function TransactionRow(props: {
   // Categories state (loaded only when editing)
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(false);
-  const [categoriesError, setCategoriesError] = React.useState<string | null>(
-    null
-  );
+  const [categoriesError, setCategoriesError] = React.useState<string | null>(null);
 
   const [desc, setDesc] = React.useState(props.description);
 
@@ -107,11 +102,8 @@ export function TransactionRow(props: {
   );
 
   const [txType, setTxType] = React.useState<TransactionType>(props.type);
-
   const [date, setDate] = React.useState(isoToDateInputValue(props.dateISO));
-  const [categoryId, setCategoryId] = React.useState<string>(
-    props.categoryId ?? ""
-  );
+  const [categoryId, setCategoryId] = React.useState<string>(props.categoryId ?? "");
 
   // Notes + flags local state
   const [notes, setNotes] = React.useState<string>(props.notes ?? "");
@@ -122,9 +114,7 @@ export function TransactionRow(props: {
   );
 
   const descInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  // For styling: income is "positive", expense is "negative"
-  const amountIsPositive = txType === "INCOME";
+  const prettyFlags = flags.filter(Boolean);
 
   async function loadCategoriesOnce() {
     if (categories.length > 0) return;
@@ -193,9 +183,7 @@ export function TransactionRow(props: {
     try {
       const res = await fetch(
         `/api/finance/transactions?id=${encodeURIComponent(props.id)}`,
-        {
-          method: "DELETE",
-        }
+        { method: "DELETE" }
       );
 
       if (!res.ok) {
@@ -263,7 +251,7 @@ export function TransactionRow(props: {
           body: JSON.stringify({
             description,
             amountCents: amountCentsAbs, // store abs
-            type: txType, // store direction explicitly
+            type: txType,
             date,
             categoryId: categoryId || null,
             notes: notes.trim() ? notes.trim() : null,
@@ -302,8 +290,6 @@ export function TransactionRow(props: {
     }
   };
 
-  const prettyFlags = flags.filter(Boolean);
-
   // ---------- VIEW MODE ----------
   if (!isEditing) {
     const hasDetails = !!(props.notes || (props.flags?.length ?? 0) > 0);
@@ -313,393 +299,472 @@ export function TransactionRow(props: {
     const viewIsPositive = props.type === "INCOME";
 
     return (
-      <div style={{ display: "grid", gap: 10 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 14,
-            alignItems: "baseline",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <div
-                style={{
-                  fontWeight: 650,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  maxWidth: 520,
-                }}
-                title={props.description}
-              >
-                {props.description}
+      <>
+        <div className="txWrap">
+          <div className="txTop">
+            <div className="txMain">
+              <div className="txTitleRow">
+                <div className="txTitle" title={props.description}>
+                  {props.description}
+                </div>
+
+                {props.categoryName ? (
+                  <span className="pill pill-accent">{props.categoryName}</span>
+                ) : null}
               </div>
 
-              {props.categoryName ? (
-                <span className="pill pill-accent">{props.categoryName}</span>
+              <div className="subtle txDate">{props.formattedDate}</div>
+
+              {/* Amount appears here on mobile via CSS duplication (desktop keeps right-side amount) */}
+              <div
+                className={`amount txAmountInline ${
+                  viewIsPositive ? "amount-positive" : "amount-negative"
+                }`}
+                title={viewAmount}
+              >
+                {viewAmount}
+              </div>
+
+              {hasDetails && showDetails && viewFlags.length ? (
+                <div className="txFlags">
+                  {viewFlags.map((f) => (
+                    <span key={f} className="pill">
+                      {FLAG_LABELS[f] ?? f}
+                    </span>
+                  ))}
+                </div>
               ) : null}
+
+              {hasDetails && showDetails && props.notes ? (
+                <div className="note-block txNotes">{props.notes}</div>
+              ) : null}
+
+              {error ? <div className="txError">{error}</div> : null}
             </div>
 
-            <div className="subtle" style={{ marginTop: 2 }}>
-              {props.formattedDate}
+            {/* Desktop amount (stays exactly like your old layout) */}
+            <div
+              className={`amount txAmountRight ${
+                viewIsPositive ? "amount-positive" : "amount-negative"
+              }`}
+              title={viewAmount}
+            >
+              {viewAmount}
             </div>
-
-            {/* Flags (subtle) */}
-            {hasDetails && showDetails && viewFlags.length ? (
-              <div
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  marginTop: 8,
-                }}
-              >
-                {viewFlags.map((f) => (
-                  <span key={f} className="pill">
-                    {FLAG_LABELS[f] ?? f}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            {/* Notes (subtle) */}
-            {hasDetails && showDetails && props.notes ? (
-              <div className="note-block" style={{ marginTop: 8 }}>
-                {props.notes}
-              </div>
-            ) : null}
-
-            {error ? (
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "rgb(var(--danger))",
-                  fontSize: 13,
-                }}
-              >
-                {error}
-              </div>
-            ) : null}
           </div>
 
-          <div
-            className={`amount ${
-              viewIsPositive ? "amount-positive" : "amount-negative"
-            }`}
-            style={{ fontWeight: 750, whiteSpace: "nowrap" }}
-            title={viewAmount}
-          >
-            {viewAmount}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => {
-              setError(null);
-              setPendingDelete(false);
-              if (deleteTimerRef.current) {
-                window.clearTimeout(deleteTimerRef.current);
-                deleteTimerRef.current = null;
-              }
-              setIsEditing(true);
-            }}
-            disabled={isSaving || pendingDelete}
-          >
-            Edit
-          </button>
-
-          {/* Optional: tiny affordance to show/hide details when there are any */}
-          {hasDetails ? (
+          {/* Actions */}
+          <div className="txActions">
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => setShowDetails((v) => !v)}
+              onClick={() => {
+                setError(null);
+                setPendingDelete(false);
+                if (deleteTimerRef.current) {
+                  window.clearTimeout(deleteTimerRef.current);
+                  deleteTimerRef.current = null;
+                }
+                setIsEditing(true);
+              }}
               disabled={isSaving || pendingDelete}
             >
-              {showDetails ? "Hide details" : "Show details"}
+              Edit
             </button>
-          ) : null}
 
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={onDelete}
-            disabled={isSaving || pendingDelete}
-          >
-            Delete
-          </button>
-
-          {pendingDelete ? (
-            <div
-              style={{
-                marginLeft: "auto",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "10px 12px",
-                borderRadius: 14,
-                border: "1px solid rgba(var(--danger), 0.25)",
-                background: "rgba(var(--danger), 0.08)",
-              }}
-            >
-              <span className="subtle" style={{ color: "rgb(var(--danger))" }}>
-                Deleted. Finalizing in 5s…
-              </span>
+            {hasDetails ? (
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={onUndoDelete}
-                disabled={isSaving}
+                className="btn btn-ghost"
+                onClick={() => setShowDetails((v) => !v)}
+                disabled={isSaving || pendingDelete}
               >
-                Undo
+                {showDetails ? "Hide details" : "Show details"}
               </button>
-            </div>
-          ) : null}
+            ) : null}
+
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={onDelete}
+              disabled={isSaving || pendingDelete}
+            >
+              Delete
+            </button>
+
+            {pendingDelete ? (
+              <div className="txUndo">
+                <span className="subtle" style={{ color: "rgb(var(--danger))" }}>
+                  Deleted. Finalizing in 5s…
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={onUndoDelete}
+                  disabled={isSaving}
+                >
+                  Undo
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
-      </div>
+
+        <style jsx>{`
+          /* Desktop defaults: match your existing layout */
+          .txWrap {
+            display: grid;
+            gap: 10px;
+          }
+
+          .txTop {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            align-items: baseline;
+          }
+
+          .txMain {
+            min-width: 0;
+          }
+
+          .txTitleRow {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+          }
+
+          .txTitle {
+            font-weight: 650;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 520px;
+          }
+
+          .txDate {
+            margin-top: 2px;
+          }
+
+          .txFlags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+          }
+
+          .txNotes {
+            margin-top: 8px;
+          }
+
+          .txError {
+            margin-top: 8px;
+            color: rgb(var(--danger));
+            font-size: 13px;
+          }
+
+          .txAmountRight {
+            font-weight: 750;
+            white-space: nowrap;
+          }
+
+          /* Hidden on desktop; shown on mobile so the amount sits under the title */
+          .txAmountInline {
+            display: none;
+            margin-top: 8px;
+            font-weight: 800;
+            font-size: 18px;
+            letter-spacing: -0.01em;
+          }
+
+          .txActions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+          }
+
+          .txUndo {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 14px;
+            border: 1px solid rgba(var(--danger), 0.25);
+            background: rgba(var(--danger), 0.08);
+          }
+
+          /* Mobile-only: polished card layout */
+          @media (max-width: 768px) {
+            .txTop {
+              flex-direction: column;
+              align-items: flex-start;
+              gap: 10px;
+            }
+
+            .txTitle {
+              max-width: 100%;
+            }
+
+            /* Put amount under the title and make it easier to scan */
+            .txAmountRight {
+              display: none;
+            }
+            .txAmountInline {
+              display: inline-flex;
+            }
+
+            /* Actions: clean grid with big tap targets */
+            .txActions {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 10px;
+              align-items: stretch;
+            }
+
+            .txActions :global(button) {
+              width: 100%;
+              justify-content: center;
+            }
+
+            /* Undo takes full width on mobile */
+            .txUndo {
+              grid-column: 1 / -1;
+              width: 100%;
+              margin-left: 0;
+              justify-content: space-between;
+            }
+          }
+        `}</style>
+      </>
     );
   }
 
   // ---------- EDIT MODE ----------
   return (
-    <div
-      onKeyDown={onEditKeyDown}
-      style={{
-        display: "grid",
-        gap: 12,
-        padding: 14,
-        borderRadius: 16,
-        border: "1px solid rgb(var(--border))",
-        background: "rgba(255,255,255,0.65)",
-      }}
-    >
-      <div style={{ display: "grid", gap: 10 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="subtle">Description</label>
-          <input
-            ref={descInputRef}
-            className="input"
-            value={desc}
-            onChange={(e) => setDesc(e.target.value)}
-            disabled={isSaving}
-          />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+    <>
+      <div onKeyDown={onEditKeyDown} className="txEditWrap">
+        <div style={{ display: "grid", gap: 10 }}>
           <div style={{ display: "grid", gap: 6 }}>
-            <label className="subtle">Amount</label>
+            <label className="subtle">Description</label>
+            <input
+              ref={descInputRef}
+              className="input"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              disabled={isSaving}
+            />
+          </div>
 
-            {/* Type toggle (Expense/Income) */}
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-                marginBottom: 6,
-              }}
-            >
+          <div className="txEditTwoCol">
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Amount</label>
+
               <div
                 style={{
-                  display: "inline-flex",
-                  border: "1px solid rgb(var(--border))",
-                  borderRadius: 999,
-                  overflow: "hidden",
-                  background: "rgb(var(--surface))",
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  marginBottom: 6,
                 }}
               >
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setTxType("EXPENSE")}
-                  disabled={isSaving}
+                <div
                   style={{
-                    borderRadius: 0,
-                    padding: "8px 12px",
-                    fontWeight: 650,
-                    background:
-                      txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                    display: "inline-flex",
+                    border: "1px solid rgb(var(--border))",
+                    borderRadius: 999,
+                    overflow: "hidden",
+                    background: "rgb(var(--surface))",
                   }}
                 >
-                  Expense
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setTxType("INCOME")}
-                  disabled={isSaving}
-                  style={{
-                    borderRadius: 0,
-                    padding: "8px 12px",
-                    fontWeight: 650,
-                    background:
-                      txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
-                  }}
-                >
-                  Income
-                </button>
-              </div>
-
-              <span className="subtle" style={{ fontSize: 12 }}>
-                {txType === "EXPENSE" ? "Will save as negative" : "Will save as positive"}
-              </span>
-            </div>
-
-            <input
-              className="input"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              disabled={isSaving}
-            />
-          </div>
-
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="subtle">Date</label>
-            <input
-              className="input"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              disabled={isSaving}
-              style={{
-                height: 44,
-                lineHeight: "44px",
-                paddingTop: 0,
-                paddingBottom: 0,
-              }}
-            />
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="subtle">Category</label>
-          <select
-            className="select"
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            disabled={isSaving || isLoadingCategories}
-            style={{ maxWidth: 360 }}
-          >
-            <option value="">
-              {isLoadingCategories ? "Loading…" : "Uncategorized"}
-            </option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          {categoriesError ? (
-            <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>
-              {categoriesError}
-            </span>
-          ) : null}
-        </div>
-
-        {/* Notes + flags */}
-        <div
-          style={{
-            border: "1px solid rgb(var(--border))",
-            borderRadius: 16,
-            padding: 12,
-            background: "rgba(255,255,255,0.55)",
-            display: "grid",
-            gap: 12,
-          }}
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="subtle">Note (optional)</label>
-            <textarea
-              className="input"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              disabled={isSaving}
-              rows={3}
-              placeholder="Add a little context…"
-              style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
-            />
-          </div>
-
-          <div style={{ display: "grid", gap: 8 }}>
-            <div className="subtle">Gentle flags (optional)</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
-                const active = prettyFlags.includes(f);
-                return (
                   <button
-                    key={f}
                     type="button"
-                    className={`pill ${active ? "pill-accent" : ""}`}
-                    onClick={() => setFlags((prev) => toggleFlag(prev, f))}
+                    className="btn btn-ghost"
+                    onClick={() => setTxType("EXPENSE")}
                     disabled={isSaving}
                     style={{
-                      cursor: isSaving ? "not-allowed" : "pointer",
-                      opacity: isSaving ? 0.6 : 1,
+                      borderRadius: 0,
+                      padding: "8px 12px",
+                      fontWeight: 650,
+                      background: txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
                     }}
                   >
-                    {FLAG_LABELS[f]}
+                    Expense
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setTxType("INCOME")}
+                    disabled={isSaving}
+                    style={{
+                      borderRadius: 0,
+                      padding: "8px 12px",
+                      fontWeight: 650,
+                      background: txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                    }}
+                  >
+                    Income
+                  </button>
+                </div>
+
+                <span className="subtle" style={{ fontSize: 12 }}>
+                  {txType === "EXPENSE" ? "Will save as negative" : "Will save as positive"}
+                </span>
+              </div>
+
+              <input
+                className="input"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                disabled={isSaving}
+              />
             </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Date</label>
+              <input
+                className="input"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                disabled={isSaving}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="subtle">Category</label>
+            <select
+              className="select"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              disabled={isSaving || isLoadingCategories}
+              style={{ maxWidth: 360 }}
+            >
+              <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {categoriesError ? (
+              <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>
+                {categoriesError}
+              </span>
+            ) : null}
+          </div>
+
+          <div
+            style={{
+              border: "1px solid rgb(var(--border))",
+              borderRadius: 16,
+              padding: 12,
+              background: "rgba(255,255,255,0.55)",
+              display: "grid",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Note (optional)</label>
+              <textarea
+                className="input"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={isSaving}
+                rows={3}
+                placeholder="Add a little context…"
+                style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
+              />
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="subtle">Gentle flags (optional)</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
+                  const active = prettyFlags.includes(f);
+                  return (
+                    <button
+                      key={f}
+                      type="button"
+                      className={`pill ${active ? "pill-accent" : ""}`}
+                      onClick={() => setFlags((prev) => toggleFlag(prev, f))}
+                      disabled={isSaving}
+                      style={{
+                        cursor: isSaving ? "not-allowed" : "pointer",
+                        opacity: isSaving ? 0.6 : 1,
+                      }}
+                    >
+                      {FLAG_LABELS[f]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {error ? <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div> : null}
+
+          <div className="subtle">
+            Tip: <b>Enter</b> to save • <b>Esc</b> to cancel
           </div>
         </div>
 
-        {error ? (
-          <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</div>
-        ) : null}
-
-        <div className="subtle">
-          Tip: <b>Enter</b> to save • <b>Esc</b> to cancel
+        <div className="txEditActions">
+          <button type="button" className="btn btn-primary" onClick={onSave} disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={isSaving}>
+            Cancel
+          </button>
         </div>
       </div>
 
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={onSave}
-          disabled={isSaving}
-        >
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          onClick={onCancel}
-          disabled={isSaving}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
+      <style jsx>{`
+        .txEditWrap {
+          display: grid;
+          gap: 12px;
+          padding: 14px;
+          border-radius: 16px;
+          border: 1px solid rgb(var(--border));
+          background: rgba(255, 255, 255, 0.65);
+        }
+
+        .txEditTwoCol {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
+
+        .txEditActions {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        @media (max-width: 768px) {
+          /* Edit form: stack fields for comfort */
+          .txEditTwoCol {
+            grid-template-columns: 1fr;
+          }
+
+          /* Buttons: full-width, easy taps */
+          .txEditActions {
+            display: grid;
+            grid-template-columns: 1fr;
+          }
+
+          .txEditActions :global(button) {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+      `}</style>
+    </>
   );
 }

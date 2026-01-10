@@ -11,25 +11,43 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  Legend,
 } from "recharts";
 
 type CategoryRow = { name: string; cents: number };
-type DailyRow = { day: string; cents: number };
+
+// cents = expense cents; incomeCents = income cents
+type DailyRow = { day: string; cents: number; incomeCents?: number };
 
 function formatMoney(cents: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
 }
 
 // Keep labels compact: "2026-01-09" -> "Jan 9"
 function formatDayLabel(yyyyMmDd: string) {
   const [y, m, d] = yyyyMmDd.split("-").map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(dt);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  }).format(dt);
 }
 
-function TooltipMoney({ active, payload, label }: any) {
+function TooltipMoneyMulti({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
-  const cents = payload[0]?.value ?? 0;
+
+  // payload contains one entry per Line in the chart
+  const byKey = new Map<string, number>();
+  for (const p of payload) {
+    if (p?.dataKey) byKey.set(String(p.dataKey), Number(p.value ?? 0));
+  }
+
+  const expense = byKey.get("cents") ?? 0;
+  const income = byKey.get("incomeCents") ?? 0;
+
   return (
     <div
       style={{
@@ -39,10 +57,43 @@ function TooltipMoney({ active, payload, label }: any) {
         background: "rgb(var(--surface))",
         boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
         fontSize: 13,
+        minWidth: 180,
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
-      <div className="subtle">{formatMoney(cents)}</div>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>{label}</div>
+
+      <div style={{ display: "grid", gap: 4 }}>
+        <div
+          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
+        >
+          <span className="subtle">Expenses</span>
+          <span style={{ fontWeight: 700 }}>{formatMoney(expense)}</span>
+        </div>
+
+        <div
+          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
+        >
+          <span className="subtle">Income</span>
+          <span style={{ fontWeight: 700 }}>{formatMoney(income)}</span>
+        </div>
+
+        <div
+          style={{
+            height: 1,
+            background: "rgba(0,0,0,0.06)",
+            margin: "6px 0",
+          }}
+        />
+
+        <div
+          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
+        >
+          <span className="subtle">Net</span>
+          <span style={{ fontWeight: 800 }}>
+            {formatMoney(income - expense)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -55,10 +106,26 @@ export function DashboardCharts({
   dailySeries: DailyRow[];
 }) {
   // Bar chart wants short labels; we’ll show top 10 for clarity
-  const barData = React.useMemo(() => categoryRows.slice(0, 10), [categoryRows]);
+  const barData = React.useMemo(
+    () => categoryRows.slice(0, 10),
+    [categoryRows]
+  );
 
-  // Show up to last 31 points with activity (already pre-aggregated)
+  // Show up to last 31 points (already pre-aggregated)
   const lineData = React.useMemo(() => dailySeries.slice(-31), [dailySeries]);
+
+  // Mobile polish: reduce tick density on small screens
+  const [isMobile, setIsMobile] = React.useState(false);
+  React.useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const apply = () => setIsMobile(mq.matches);
+    apply();
+    mq.addEventListener?.("change", apply);
+    return () => mq.removeEventListener?.("change", apply);
+  }, []);
+
+  // For line chart ticks: show fewer labels on mobile
+  const xInterval = isMobile ? "preserveStartEnd" : 0;
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -76,23 +143,60 @@ export function DashboardCharts({
             <div className="subtle">No expenses found for this period.</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={barData} margin={{ top: 10, right: 12, left: 0, bottom: 10 }}>
+              <BarChart
+                data={barData}
+                margin={{ top: 10, right: 12, left: 0, bottom: 10 }}
+              >
                 <CartesianGrid stroke="rgba(0,0,0,0.06)" vertical={false} />
                 <XAxis
                   dataKey="name"
                   tickLine={false}
                   axisLine={false}
                   interval={0}
-                  tick={{ fontSize: 12 }}
+                  height={70}
+                  tick={{ fontSize: 11 }}
+                  angle={-35}
+                  textAnchor="end"
+                  tickFormatter={(v) => {
+                    const s = String(v ?? "");
+                    return s.length > 10 ? `${s.slice(0, 10)}…` : s;
+                  }}
                 />
+
                 <YAxis
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 12 }}
                   tickFormatter={(v) => `$${Math.round(v / 100)}`}
                 />
-                <Tooltip content={<TooltipMoney />} />
-                <Bar dataKey="cents" fill="rgb(var(--accent))" radius={[10, 10, 0, 0]} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const cents = payload[0]?.value ?? 0;
+                    return (
+                      <div
+                        style={{
+                          padding: 10,
+                          borderRadius: 12,
+                          border: "1px solid rgb(var(--border))",
+                          background: "rgb(var(--surface))",
+                          boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+                          fontSize: 13,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                          {label}
+                        </div>
+                        <div className="subtle">{formatMoney(cents)}</div>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar
+                  dataKey="cents"
+                  fill="rgb(var(--accent))"
+                  radius={[10, 10, 0, 0]}
+                />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -105,46 +209,69 @@ export function DashboardCharts({
         ) : null}
       </section>
 
-      {/* Daily spending trend */}
+      {/* Daily trend */}
       <section className="card">
         <div className="card-header">
           <div>
-            <div className="h2">Daily spending trend</div>
-            <div className="subtle">Expenses per day.</div>
+            <div className="h2">Daily trend</div>
+            <div className="subtle">Expenses and income per day.</div>
           </div>
         </div>
 
         <div className="card-body" style={{ height: 320 }}>
           {lineData.length === 0 ? (
-            <div className="subtle">No expenses yet for this period.</div>
+            <div className="subtle">No activity yet for this period.</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={lineData} margin={{ top: 10, right: 12, left: 0, bottom: 10 }}>
+              <LineChart
+                data={lineData}
+                margin={{ top: 10, right: 12, left: 0, bottom: 10 }}
+              >
                 <CartesianGrid stroke="rgba(0,0,0,0.06)" vertical={false} />
+
                 <XAxis
                   dataKey="day"
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 12 }}
                   tickFormatter={formatDayLabel}
+                  interval={xInterval as any}
                 />
+
                 <YAxis
                   tickLine={false}
                   axisLine={false}
                   tick={{ fontSize: 12 }}
                   tickFormatter={(v) => `$${Math.round(v / 100)}`}
                 />
+
                 <Tooltip
-                  content={
-                    <TooltipMoney
-                      // label formatter runs before tooltip content sometimes; keep simple
-                    />
-                  }
+                  content={<TooltipMoneyMulti />}
                   labelFormatter={(l: string) => formatDayLabel(l)}
                 />
+
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  iconType="circle"
+                  wrapperStyle={{ fontSize: 12 }}
+                />
+
+                {/* Expenses */}
                 <Line
                   type="monotone"
                   dataKey="cents"
+                  name="Expenses"
+                  stroke="rgb(var(--danger))"
+                  strokeWidth={3}
+                  dot={false}
+                />
+
+                {/* Income */}
+                <Line
+                  type="monotone"
+                  dataKey="incomeCents"
+                  name="Income"
                   stroke="rgb(var(--accent))"
                   strokeWidth={3}
                   dot={false}

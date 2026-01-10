@@ -329,3 +329,192 @@ button.pill:focus-visible {
   box-shadow: 0 0 0 4px rgba(var(--accent), 0.12);
   border-color: rgba(var(--accent), 0.45);
 }
+
+/* Mobile-only space for the fixed bottom navigation */
+@media (max-width: 768px) {
+  .container-app {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Mobile polish: prevent horizontal overflow */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Mobile polish: footer breathing room above bottom nav */
+@media (max-width: 768px) {
+  footer {
+    margin-top: 28px !important;
+  }
+}
+
+/* Mobile-only space for the fixed bottom navigation */
+@media (max-width: 768px) {
+  .container-app {
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+}
+
+/* Mobile polish: prevent horizontal overflow */
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+}
+
+/* Mobile polish: footer breathing room above bottom nav */
+@media (max-width: 768px) {
+  footer {
+    margin-top: 28px !important;
+  }
+}
+
+/* -----------------------------
+   Transactions page: polish
+   ----------------------------- */
+
+.z-page {
+  display: grid;
+  gap: 20px;
+}
+
+.z-txHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.z-txSignedIn {
+  text-align: right;
+}
+
+.z-txListHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.z-txCard {
+  border: 1px solid rgb(var(--border));
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+/* Transactions: Mobile-only overrides */
+@media (max-width: 768px) {
+  .z-txHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .z-txSignedIn {
+    text-align: left;
+  }
+
+  /* Hide "Showing / Amount" row on phones */
+  .z-txListHeader {
+    display: none;
+  }
+
+  /* Slightly tighter cards on mobile */
+  .z-txCard {
+    padding: 12px;
+    border-radius: 18px;
+  }
+
+  /* Smoother scroll on iOS */
+  .z-scrollArea {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* -----------------------------
+   Dashboard: responsive polish
+   (safe for Server Components)
+   ----------------------------- */
+
+.dashHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.dashControls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.dashRangeBtns {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dashMonthForm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dashKpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashKpiCard {
+  border: 1px solid rgb(var(--border));
+  border-radius: 16px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* ✅ Mobile-only (tighter breakpoint so desktop stays desktop) */
+@media (max-width: 560px) {
+  .dashHeader {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dashRangeBtns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .dashMonthForm {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .dashMonthForm input {
+    width: 100% !important;
+  }
+
+  /* KPIs stack only on small phones */
+  .dashKpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ✅ Keep KPIs like desktop on tablets/small laptops */
+@media (min-width: 561px) and (max-width: 980px) {
+  .dashKpis {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

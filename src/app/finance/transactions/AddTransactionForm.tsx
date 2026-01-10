@@ -63,7 +63,7 @@ export function AddTransactionForm() {
   const [txType, setTxType] = React.useState<TransactionType | null>(null);
   const [amountText, setAmountText] = React.useState("");
 
-  // Notes + flags (Phase 1)
+  // Notes + flags
   const [showDetails, setShowDetails] = React.useState(false);
   const [notes, setNotes] = React.useState<string>("");
   const [flags, setFlags] = React.useState<TxFlag[]>([]);
@@ -231,7 +231,7 @@ export function AddTransactionForm() {
 
       setCategoryId("");
       setShowCreateCategory(false);
-      setCategoryError(null); // ✅ small cleanup
+      setCategoryError(null);
 
       setShowDetails(false);
       setNotes("");
@@ -246,299 +246,395 @@ export function AddTransactionForm() {
   };
 
   return (
-    <form onSubmit={onSubmit} style={{ display: "grid", gap: 14 }}>
-      {/* Main fields */}
-      <div style={{ display: "grid", gap: 12 }}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="subtle">Description</label>
-          <input
-            className="input"
-            name="description"
-            required
-            disabled={disabledAny}
-            placeholder="e.g. Grocery run"
-          />
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 10,
-          }}
-        >
-          {/* Amount with $ prefix + type toggle + +/- button */}
+    <>
+      <form onSubmit={onSubmit} className="addTxForm">
+        {/* Main fields */}
+        <div style={{ display: "grid", gap: 12 }}>
           <div style={{ display: "grid", gap: 6 }}>
-            <label className="subtle">Amount</label>
+            <label className="subtle">Description</label>
+            <input
+              className="input"
+              name="description"
+              required
+              disabled={disabledAny}
+              placeholder="e.g. Grocery run"
+            />
+          </div>
 
-            {/* Type toggle */}
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <div
-                style={{
-                  display: "inline-flex",
-                  border: "1px solid rgb(var(--border))",
-                  borderRadius: 999,
-                  overflow: "hidden",
-                  background: "rgb(var(--surface))",
-                }}
-              >
+          <div className="addTxTwoCol">
+            {/* Amount */}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Amount</label>
+
+              <div className="addTxTypeRow">
+                <div className="addTxTypePill">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setTypeAndNormalizeSign("EXPENSE")}
+                    disabled={disabledAny}
+                    style={{
+                      borderRadius: 0,
+                      padding: "8px 12px",
+                      fontWeight: 650,
+                      background: txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                    }}
+                  >
+                    Expense
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setTypeAndNormalizeSign("INCOME")}
+                    disabled={disabledAny}
+                    style={{
+                      borderRadius: 0,
+                      padding: "8px 12px",
+                      fontWeight: 650,
+                      background: txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                    }}
+                  >
+                    Income
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setTypeAndNormalizeSign("EXPENSE")}
+                  className="btn btn-ghost addTxFlip"
+                  onClick={flipSign}
                   disabled={disabledAny}
-                  style={{
-                    borderRadius: 0,
-                    padding: "8px 12px",
-                    fontWeight: 650,
-                    background:
-                      txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
-                  }}
+                  title="Flip sign"
                 >
-                  Expense
+                  ±
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => setTypeAndNormalizeSign("INCOME")}
-                  disabled={disabledAny}
-                  style={{
-                    borderRadius: 0,
-                    padding: "8px 12px",
-                    fontWeight: 650,
-                    background:
-                      txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
-                  }}
-                >
-                  Income
-                </button>
+
+                <span className="subtle addTxTip">Tip: use “-” for expenses</span>
               </div>
+
+              <div className="addTxMoneyInput">
+                <span className="subtle" style={{ fontSize: 14 }}>
+                  $
+                </span>
+
+                <input
+                  name="amount"
+                  required
+                  inputMode="decimal"
+                  placeholder="12.34"
+                  disabled={disabledAny}
+                  value={amountText}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setAmountText(next);
+
+                    const trimmed = next.trim();
+
+                    if (trimmed.startsWith("-")) {
+                      setTxType("EXPENSE");
+                    } else if (trimmed.startsWith("+")) {
+                      setTxType("INCOME");
+                    } else if (trimmed !== "") {
+                      setTxType("INCOME");
+                    } else {
+                      setTxType(null);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    border: "none",
+                    outline: "none",
+                    background: "transparent",
+                    padding: "11px 0",
+                    fontSize: 14,
+                    color: "rgb(var(--text))",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Date */}
+            <div style={{ display: "grid", gap: 6 }}>
+              <label className="subtle">Date</label>
+              <input className="input" name="date" required type="date" disabled={disabledAny} />
+            </div>
+          </div>
+
+          {/* Category */}
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="subtle">Category</label>
+            <select
+              className="select"
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              disabled={disabledAny || isLoadingCategories}
+              style={{ maxWidth: 360 }}
+            >
+              <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            <div className="addTxActionsRow">
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setCategoryError(null);
+                  setShowCreateCategory((v) => !v);
+                }}
+                disabled={disabledAny}
+              >
+                {showCreateCategory ? "Hide category creator" : "Create a new category"}
+              </button>
 
               <button
                 type="button"
                 className="btn btn-ghost"
-                onClick={flipSign}
+                onClick={() => setShowDetails((v) => !v)}
                 disabled={disabledAny}
-                title="Flip sign"
               >
-                ±
+                {showDetails ? "Hide notes & flags" : "Add notes & flags"}
               </button>
-
-              <span className="subtle" style={{ fontSize: 12 }}>
-                Tip: use “-” for expenses
-              </span>
             </div>
+          </div>
 
-            {/* Amount input */}
+          {/* Notes + flags */}
+          {showDetails ? (
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
                 border: "1px solid rgb(var(--border))",
-                borderRadius: 14,
-                padding: "0 12px",
-                background: "rgb(var(--surface))",
+                borderRadius: 16,
+                padding: 14,
+                background: "rgba(255,255,255,0.55)",
+                display: "grid",
+                gap: 12,
               }}
             >
-              <span className="subtle" style={{ fontSize: 14 }}>
-                $
-              </span>
+              <div style={{ display: "grid", gap: 6 }}>
+                <label className="subtle">Note (optional)</label>
+                <textarea
+                  className="input"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  disabled={disabledAny}
+                  rows={3}
+                  placeholder="Add a little context… (what was this for, how did it feel?)"
+                  style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
+                />
+              </div>
 
-              <input
-                name="amount"
-                required
-                inputMode="decimal"
-                placeholder="12.34"
-                disabled={disabledAny}
-                value={amountText}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setAmountText(next);
-
-                  const trimmed = next.trim();
-
-                  if (trimmed.startsWith("-")) {
-                    setTxType("EXPENSE");
-                  } else if (trimmed.startsWith("+")) {
-                    setTxType("INCOME");
-                  } else if (trimmed !== "") {
-                    setTxType("INCOME");
-                  } else {
-                    setTxType(null);
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
-                  padding: "11px 0",
-                  fontSize: 14,
-                  color: "rgb(var(--text))",
-                }}
-              />
-            </div>
-          </div>
-
-          <div style={{ display: "grid", gap: 6 }}>
-            <label className="subtle">Date</label>
-            <input className="input" name="date" required type="date" disabled={disabledAny} />
-          </div>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label className="subtle">Category</label>
-          <select
-            className="select"
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            disabled={disabledAny || isLoadingCategories}
-            style={{ maxWidth: 360 }}
-          >
-            <option value="">{isLoadingCategories ? "Loading…" : "Uncategorized"}</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => {
-                setCategoryError(null);
-                setShowCreateCategory((v) => !v);
-              }}
-              disabled={disabledAny}
-              style={{ justifySelf: "flex-start" }}
-            >
-              {showCreateCategory ? "Hide category creator" : "Create a new category"}
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => setShowDetails((v) => !v)}
-              disabled={disabledAny}
-            >
-              {showDetails ? "Hide notes & flags" : "Add notes & flags"}
-            </button>
-          </div>
-        </div>
-
-        {/* Notes + flags */}
-        {showDetails ? (
-          <div
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.55)",
-              display: "grid",
-              gap: 12,
-            }}
-          >
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="subtle">Note (optional)</label>
-              <textarea
-                className="input"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                disabled={disabledAny}
-                rows={3}
-                placeholder="Add a little context… (what was this for, how did it feel?)"
-                style={{ resize: "vertical", paddingTop: 10, paddingBottom: 10 }}
-              />
-            </div>
-
-            <div style={{ display: "grid", gap: 8 }}>
-              <div className="subtle">Gentle flags (optional)</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
-                  const active = flags.includes(f);
-                  return (
-                    <button
-                      key={f}
-                      type="button"
-                      className={`pill ${active ? "pill-accent" : ""}`}
-                      onClick={() => setFlags((prev) => toggleFlag(prev, f))}
-                      disabled={disabledAny}
-                      style={{
-                        cursor: disabledAny ? "not-allowed" : "pointer",
-                        opacity: disabledAny ? 0.6 : 1,
-                      }}
-                    >
-                      {FLAG_LABELS[f]}
-                    </button>
-                  );
-                })}
+              <div style={{ display: "grid", gap: 8 }}>
+                <div className="subtle">Gentle flags (optional)</div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {(Object.keys(FLAG_LABELS) as TxFlag[]).map((f) => {
+                    const active = flags.includes(f);
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        className={`pill ${active ? "pill-accent" : ""}`}
+                        onClick={() => setFlags((prev) => toggleFlag(prev, f))}
+                        disabled={disabledAny}
+                        style={{
+                          cursor: disabledAny ? "not-allowed" : "pointer",
+                          opacity: disabledAny ? 0.6 : 1,
+                        }}
+                      >
+                        {FLAG_LABELS[f]}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {/* Create category */}
-        {showCreateCategory ? (
-          <div
-            style={{
-              border: "1px solid rgb(var(--border))",
-              borderRadius: 16,
-              padding: 14,
-              background: "rgba(255,255,255,0.55)",
-              display: "grid",
-              gap: 10,
-            }}
-          >
-            <div style={{ display: "grid", gap: 4 }}>
-              <div style={{ fontWeight: 650 }}>New category</div>
-              <div className="subtle">Example: Food, Rent, Utilities</div>
+          {/* Create category */}
+          {showCreateCategory ? (
+            <div
+              style={{
+                border: "1px solid rgb(var(--border))",
+                borderRadius: 16,
+                padding: 14,
+                background: "rgba(255,255,255,0.55)",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "grid", gap: 4 }}>
+                <div style={{ fontWeight: 650 }}>New category</div>
+                <div className="subtle">Example: Food, Rent, Utilities</div>
+              </div>
+
+              <div className="addTxCreateRow">
+                <input
+                  className="input"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="Category name"
+                  disabled={disabledAny}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void onCreateCategory();
+                    }
+                  }}
+                />
+
+                <button
+                  className="btn btn-secondary"
+                  type="button"
+                  onClick={onCreateCategory}
+                  disabled={disabledAny}
+                >
+                  {isCreatingCategory ? "Creating..." : "Create"}
+                </button>
+              </div>
+
+              {categoryError ? (
+                <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{categoryError}</div>
+              ) : null}
             </div>
+          ) : null}
+        </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <input
-                className="input"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="Category name"
-                disabled={disabledAny}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void onCreateCategory();
-                  }
-                }}
-                style={{ minWidth: 240 }}
-              />
+        {/* Footer actions */}
+        <div className="addTxFooter">
+          <button className="btn btn-primary addTxSubmit" type="submit" disabled={disabledAny}>
+            {isSaving ? "Saving..." : "Add transaction"}
+          </button>
 
-              <button className="btn btn-secondary" type="button" onClick={onCreateCategory} disabled={disabledAny}>
-                {isCreatingCategory ? "Creating..." : "Create"}
-              </button>
-            </div>
+          {error ? (
+            <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span>
+          ) : null}
+        </div>
+      </form>
 
-            {categoryError ? <div style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{categoryError}</div> : null}
-          </div>
-        ) : null}
-      </div>
+      <style jsx>{`
+        .addTxForm {
+          display: grid;
+          gap: 14px;
+        }
 
-      {/* Footer actions */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button className="btn btn-primary" type="submit" disabled={disabledAny}>
-          {isSaving ? "Saving..." : "Add transaction"}
-        </button>
+        .addTxTwoCol {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+        }
 
-        {error ? <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span> : null}
-      </div>
-    </form>
+        .addTxTypeRow {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .addTxTypePill {
+          display: inline-flex;
+          border: 1px solid rgb(var(--border));
+          border-radius: 999px;
+          overflow: hidden;
+          background: rgb(var(--surface));
+        }
+
+        .addTxMoneyInput {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          border: 1px solid rgb(var(--border));
+          border-radius: 14px;
+          padding: 0 12px;
+          background: rgb(var(--surface));
+        }
+
+        .addTxActionsRow {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+
+        .addTxCreateRow {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        .addTxCreateRow :global(input) {
+          min-width: 240px;
+        }
+
+        .addTxFooter {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+
+        /* Mobile-only polish */
+        @media (max-width: 768px) {
+          /* Stack Amount / Date instead of squishing */
+          .addTxTwoCol {
+            grid-template-columns: 1fr;
+          }
+
+          /* Hide the long tip on very small screens (keeps UI clean) */
+          .addTxTip {
+            display: none;
+          }
+
+          /* Make the ± button a consistent tap target */
+          .addTxFlip {
+            min-width: 44px;
+            height: 40px;
+          }
+
+          /* Make action buttons easier to tap (and prevent weird wraps) */
+          .addTxActionsRow {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+
+          .addTxActionsRow :global(button) {
+            width: 100%;
+            justify-content: center;
+          }
+
+          /* Create category: stack input + button */
+          .addTxCreateRow {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+          }
+
+          .addTxCreateRow :global(input) {
+            min-width: 0;
+            width: 100%;
+          }
+
+          .addTxCreateRow :global(button) {
+            width: 100%;
+            justify-content: center;
+          }
+
+          /* Footer: full-width primary */
+          .addTxFooter {
+            display: grid;
+            gap: 10px;
+          }
+
+          .addTxSubmit {
+            width: 100%;
+            justify-content: center;
+          }
+        }
+      `}</style>
+    </>
   );
 }
