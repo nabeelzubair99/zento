@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { HeaderActions } from "@/components/HeaderActions";
 
 export const metadata: Metadata = {
   title: "Zento",
@@ -8,25 +9,11 @@ export const metadata: Metadata = {
 
 function ZentoMark() {
   return (
-    <svg
-      width="44"
-      height="44"
-      viewBox="0 0 40 40"
-      aria-hidden
-      style={{ display: "block" }}
-    >
+    <svg width="44" height="44" viewBox="0 0 40 40" aria-hidden style={{ display: "block" }}>
       <defs>
         <linearGradient id="zentoGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop
-            offset="0%"
-            stopColor="rgb(var(--accent))"
-            stopOpacity="0.9"
-          />
-          <stop
-            offset="100%"
-            stopColor="rgb(181 142 92)"
-            stopOpacity="0.9"
-          />
+          <stop offset="0%" stopColor="rgb(var(--accent))" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="rgb(181 142 92)" stopOpacity="0.9" />
         </linearGradient>
       </defs>
 
@@ -42,16 +29,8 @@ function ZentoMark() {
       />
 
       {/* leaf / petal shapes */}
-      <path
-        d="M10 22c0-6 6-10 12-10 0 6-4 12-12 12z"
-        fill="rgb(var(--accent))"
-        opacity="0.55"
-      />
-      <path
-        d="M18 26c0-6 6-10 12-10 0 6-4 12-12 12z"
-        fill="rgb(181 142 92)"
-        opacity="0.55"
-      />
+      <path d="M10 22c0-6 6-10 12-10 0 6-4 12-12 12z" fill="rgb(var(--accent))" opacity="0.55" />
+      <path d="M18 26c0-6 6-10 12-10 0 6-4 12-12 12z" fill="rgb(181 142 92)" opacity="0.55" />
 
       {/* tiny sparkle */}
       <path
@@ -63,11 +42,7 @@ function ZentoMark() {
   );
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="app-shell">
@@ -86,20 +61,13 @@ export default function RootLayout({
               <ZentoMark />
 
               <div>
-                <div
-                  style={{
-                    fontSize: 18,
-                    fontWeight: 700,
-                    lineHeight: 1.1,
-                  }}
-                >
-                  Zento
-                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>Zento</div>
                 <div className="subtle">Warm, clear money tracking</div>
               </div>
             </div>
 
-            <span className="pill pill-accent">Beta</span>
+            {/* ✅ Icons live where "Beta" used to be */}
+            <HeaderActions />
           </header>
 
           {children}
