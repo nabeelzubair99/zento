@@ -4,6 +4,8 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AddTransactionForm } from "./AddTransactionForm";
 import { TransactionRow } from "./TransactionRow";
+import { cookies } from "next/headers";
+import crypto from "crypto";
 
 type TransactionType = "EXPENSE" | "INCOME";
 
@@ -15,6 +17,80 @@ function formatDate(d: Date) {
   }).format(d);
 }
 
+/** ----------------------------
+ * Anonymous session support
+ * ---------------------------- */
+const ANON_COOKIE = "zento_anon";
+
+function hashToken(raw: string) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+async function getUserContext(): Promise<{
+  userId: string | null;
+  label: string;
+  isAuthed: boolean;
+}> {
+  const session = await getServerSession(authOptions);
+
+  // Prefer session.user.id (we added it via callbacks.session)
+  const sessionUserId = (session?.user as any)?.id as string | undefined;
+  if (sessionUserId) {
+    const email = session?.user?.email ?? "your account";
+    return {
+      userId: sessionUserId,
+      label: `Signed in as ${email}`,
+      isAuthed: true,
+    };
+  }
+
+  // Fallback: if session has email but not id, resolve user id
+  const email = session?.user?.email;
+  if (email) {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (user?.id) {
+      return { userId: user.id, label: `Signed in as ${email}`, isAuthed: true };
+    }
+  }
+
+  // ✅ cookies() is NOT async in Next App Router
+  const jar = await cookies();
+  const raw = jar.get(ANON_COOKIE)?.value;
+
+  if (!raw) {
+    return { userId: null, label: "Using Zento on this device", isAuthed: false };
+  }
+
+  const tokenHash = hashToken(raw);
+
+  const sess = await prisma.anonSession.findUnique({
+    where: { tokenHash },
+    select: { id: true, userId: true, expiresAt: true },
+  });
+
+  if (!sess) {
+    return { userId: null, label: "Using Zento on this device", isAuthed: false };
+  }
+
+  if (sess.expiresAt && sess.expiresAt.getTime() < Date.now()) {
+    return { userId: null, label: "Using Zento on this device", isAuthed: false };
+  }
+
+  // Touch lastSeenAt (best-effort)
+  prisma.anonSession
+    .update({
+      where: { id: sess.id },
+      data: { lastSeenAt: new Date() },
+    })
+    .catch(() => {});
+
+  return { userId: sess.userId, label: "Using Zento on this device", isAuthed: false };
+}
+
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
@@ -22,65 +98,13 @@ type PageProps = {
 export default async function TransactionsPage({ searchParams }: PageProps) {
   await searchParams;
 
-  const session = await getServerSession(authOptions);
+  const { userId, label, isAuthed } = await getUserContext();
 
-  if (!session) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">Welcome back</h1>
-            <p className="subtle">Sign in to view your transactions.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const email = session.user?.email;
-  if (!email) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">Unauthorized</h1>
-            <p className="subtle">Please sign in again.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-
-  if (!user) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">User not found</h1>
-            <p className="subtle">Try signing out and back in.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const totalCountEver = await prisma.transaction.count({
-    where: { userId: user.id },
-  });
+  // If we have a userId (authed or anon), we can count and list transactions.
+  // If not, still render the page and let the first POST create the anon cookie.
+  const totalCountEver = userId
+    ? await prisma.transaction.count({ where: { userId } })
+    : 0;
 
   return (
     <main className="z-page">
@@ -91,7 +115,22 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
             Transactions
           </h1>
 
-          <div className="subtle z-txSignedIn">Signed in as {email}</div>
+          <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+            <div className="subtle z-txSignedIn">{label}</div>
+
+            {!isAuthed ? (
+              <div className="subtle" style={{ fontSize: 12 }}>
+                Want to sync across devices?{" "}
+                <Link
+                  href="/api/auth/signin"
+                  className="subtle"
+                  style={{ textDecoration: "underline" }}
+                >
+                  Sign in
+                </Link>
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 
@@ -118,7 +157,16 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
         </div>
 
         <div className="card-body flex-1 min-h-0 overflow-y-auto z-scrollArea">
-          <TransactionsList userId={user.id} totalCountEver={totalCountEver} />
+          {!userId ? (
+            <div style={{ display: "grid", gap: 10 }}>
+              <div style={{ fontWeight: 650 }}>You’re all set.</div>
+              <div className="subtle">
+                Add your first transaction and it’ll show up here.
+              </div>
+            </div>
+          ) : (
+            <TransactionsList userId={userId} totalCountEver={totalCountEver} />
+          )}
         </div>
       </section>
     </main>
@@ -148,7 +196,9 @@ async function TransactionsList({
     return (
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>You’re all set.</div>
-        <div className="subtle">Add your first transaction and it’ll show up here.</div>
+        <div className="subtle">
+          Add your first transaction and it’ll show up here.
+        </div>
       </div>
     );
   }

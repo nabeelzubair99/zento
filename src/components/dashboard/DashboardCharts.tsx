@@ -63,16 +63,12 @@ function TooltipMoneyMulti({ active, payload, label }: any) {
       <div style={{ fontWeight: 700, marginBottom: 6 }}>{label}</div>
 
       <div style={{ display: "grid", gap: 4 }}>
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span className="subtle">Expenses</span>
           <span style={{ fontWeight: 700 }}>{formatMoney(expense)}</span>
         </div>
 
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span className="subtle">Income</span>
           <span style={{ fontWeight: 700 }}>{formatMoney(income)}</span>
         </div>
@@ -85,13 +81,9 @@ function TooltipMoneyMulti({ active, payload, label }: any) {
           }}
         />
 
-        <div
-          style={{ display: "flex", justifyContent: "space-between", gap: 10 }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span className="subtle">Net</span>
-          <span style={{ fontWeight: 800 }}>
-            {formatMoney(income - expense)}
-          </span>
+          <span style={{ fontWeight: 800 }}>{formatMoney(income - expense)}</span>
         </div>
       </div>
     </div>
@@ -106,10 +98,7 @@ export function DashboardCharts({
   dailySeries: DailyRow[];
 }) {
   // Bar chart wants short labels; we’ll show top 10 for clarity
-  const barData = React.useMemo(
-    () => categoryRows.slice(0, 10),
-    [categoryRows]
-  );
+  const barData = React.useMemo(() => categoryRows.slice(0, 10), [categoryRows]);
 
   // Show up to last 31 points (already pre-aggregated)
   const lineData = React.useMemo(() => dailySeries.slice(-31), [dailySeries]);
@@ -124,8 +113,9 @@ export function DashboardCharts({
     return () => mq.removeEventListener?.("change", apply);
   }, []);
 
-  // For line chart ticks: show fewer labels on mobile
-  const xInterval = isMobile ? "preserveStartEnd" : 0;
+  // ✅ use a number to avoid any typing weirdness
+  // 0 = show all ticks, 2 = show every 3rd tick
+  const xInterval = isMobile ? 2 : 0;
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
@@ -143,11 +133,9 @@ export function DashboardCharts({
             <div className="subtle">No expenses found for this period.</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={barData}
-                margin={{ top: 10, right: 12, left: 0, bottom: 10 }}
-              >
+              <BarChart data={barData} margin={{ top: 10, right: 12, left: 0, bottom: 10 }}>
                 <CartesianGrid stroke="rgba(0,0,0,0.06)" vertical={false} />
+
                 <XAxis
                   dataKey="name"
                   tickLine={false}
@@ -169,6 +157,7 @@ export function DashboardCharts({
                   tick={{ fontSize: 12 }}
                   tickFormatter={(v) => `$${Math.round(v / 100)}`}
                 />
+
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -184,19 +173,14 @@ export function DashboardCharts({
                           fontSize: 13,
                         }}
                       >
-                        <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                          {label}
-                        </div>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
                         <div className="subtle">{formatMoney(cents)}</div>
                       </div>
                     );
                   }}
                 />
-                <Bar
-                  dataKey="cents"
-                  fill="rgb(var(--accent))"
-                  radius={[10, 10, 0, 0]}
-                />
+
+                <Bar dataKey="cents" fill="rgb(var(--accent))" radius={[10, 10, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -223,10 +207,7 @@ export function DashboardCharts({
             <div className="subtle">No activity yet for this period.</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={lineData}
-                margin={{ top: 10, right: 12, left: 0, bottom: 10 }}
-              >
+              <LineChart data={lineData} margin={{ top: 10, right: 12, left: 0, bottom: 10 }}>
                 <CartesianGrid stroke="rgba(0,0,0,0.06)" vertical={false} />
 
                 <XAxis
@@ -235,7 +216,7 @@ export function DashboardCharts({
                   axisLine={false}
                   tick={{ fontSize: 12 }}
                   tickFormatter={formatDayLabel}
-                  interval={xInterval as any}
+                  interval={xInterval}
                 />
 
                 <YAxis
@@ -245,17 +226,9 @@ export function DashboardCharts({
                   tickFormatter={(v) => `$${Math.round(v / 100)}`}
                 />
 
-                <Tooltip
-                  content={<TooltipMoneyMulti />}
-                  labelFormatter={(l: string) => formatDayLabel(l)}
-                />
+                <Tooltip content={<TooltipMoneyMulti />} labelFormatter={(l: string) => formatDayLabel(l)} />
 
-                <Legend
-                  verticalAlign="top"
-                  align="right"
-                  iconType="circle"
-                  wrapperStyle={{ fontSize: 12 }}
-                />
+                <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ fontSize: 12 }} />
 
                 {/* Expenses */}
                 <Line

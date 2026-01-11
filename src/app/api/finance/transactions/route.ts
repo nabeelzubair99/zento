@@ -2,6 +2,10 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TransactionFlag } from "@prisma/client";
+import { cookies } from "next/headers";
+import crypto from "crypto";
+
+export const runtime = "nodejs";
 
 function json(data: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(data), {
@@ -12,6 +16,118 @@ function json(data: unknown, init?: ResponseInit) {
     },
   });
 }
+
+/** ----------------------------
+ * Anonymous session support
+ * ---------------------------- */
+const ANON_COOKIE = "zento_anon";
+const ANON_MAX_AGE_SECONDS = 60 * 60 * 24 * 180; // 180 days
+
+function hashToken(raw: string) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+function makeCookieHeader(token: string) {
+  const secure = process.env.NODE_ENV === "production" ? " Secure;" : "";
+  return `${ANON_COOKIE}=${encodeURIComponent(
+    token
+  )}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${ANON_MAX_AGE_SECONDS};${secure}`;
+}
+
+async function getUserIdFromNextAuth(): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+
+  // Prefer id if present (we added it via callbacks.session)
+  const id = (session?.user as { id?: string } | undefined)?.id;
+  if (id) return id;
+
+  // Fallback: email lookup (kept for safety)
+  const email = session?.user?.email;
+  if (!email) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true },
+  });
+
+  return user?.id ?? null;
+}
+
+async function getUserIdFromAnonCookie(): Promise<string | null> {
+  // ✅ cookies() is synchronous in route handlers
+  const jar = await cookies();
+  const raw = jar.get(ANON_COOKIE)?.value;
+  if (!raw) return null;
+
+  const tokenHash = hashToken(raw);
+
+  const sess = await prisma.anonSession.findUnique({
+    where: { tokenHash },
+    select: { id: true, userId: true, expiresAt: true },
+  });
+
+  if (!sess) return null;
+  if (sess.expiresAt && sess.expiresAt.getTime() < Date.now()) return null;
+
+  // Touch lastSeenAt (best-effort)
+  prisma.anonSession
+    .update({
+      where: { id: sess.id },
+      data: { lastSeenAt: new Date() },
+    })
+    .catch(() => {});
+
+  return sess.userId;
+}
+
+/**
+ * Returns userId if authenticated OR has valid anon cookie.
+ * Otherwise returns null.
+ */
+async function getUserIdOrNull(): Promise<{ userId: string | null }> {
+  const authed = await getUserIdFromNextAuth();
+  if (authed) return { userId: authed };
+
+  const anon = await getUserIdFromAnonCookie();
+  if (anon) return { userId: anon };
+
+  return { userId: null };
+}
+
+/**
+ * For POST: if no session and no anon cookie, create anon user + cookie
+ * Always returns a non-null userId
+ */
+async function getUserIdOrCreateAnonForWrite(): Promise<{
+  userId: string;
+  setCookie: string | null;
+}> {
+  const existing = await getUserIdOrNull();
+  if (existing.userId) return { userId: existing.userId, setCookie: null };
+
+  const token = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + ANON_MAX_AGE_SECONDS * 1000);
+
+  const created = await prisma.user.create({
+    data: {
+      isAnonymous: true,
+      anonSessions: {
+        create: {
+          tokenHash,
+          expiresAt,
+        },
+      },
+    },
+    select: { id: true },
+  });
+
+  return { userId: created.id, setCookie: makeCookieHeader(token) };
+}
+
+/** ----------------------------
+ * Existing route logic below
+ * ---------------------------- */
 
 type TransactionType = "EXPENSE" | "INCOME";
 const ALLOWED_TYPES = new Set<TransactionType>(["EXPENSE", "INCOME"]);
@@ -38,20 +154,6 @@ function parseMonth(month: string | null) {
   const start = new Date(Date.UTC(y, m - 1, 1));
   const end = new Date(Date.UTC(y, m, 1));
   return { ok: true as const, range: { start, end } };
-}
-
-async function getAuthedUserId() {
-  const session = await getServerSession(authOptions);
-  const email = session?.user?.email;
-
-  if (!email) return null;
-
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-
-  return user?.id ?? null;
 }
 
 function parseIdFromUrl(req: Request) {
@@ -124,15 +226,14 @@ function parseFlags(
 }
 
 export async function GET(req: Request) {
-  const userId = await getAuthedUserId();
+  const { userId } = await getUserIdOrNull();
   if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
 
   // Month filter
   const parsedMonth = parseMonth(url.searchParams.get("month"));
-  if (!parsedMonth.ok)
-    return json({ error: parsedMonth.error }, { status: 400 });
+  if (!parsedMonth.ok) return json({ error: parsedMonth.error }, { status: 400 });
 
   // Optional search filter
   const q = (url.searchParams.get("q") ?? "").trim();
@@ -168,8 +269,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const userId = await getAuthedUserId();
-  if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
+  const { userId, setCookie } = await getUserIdOrCreateAnonForWrite();
 
   let body: any;
   try {
@@ -182,8 +282,7 @@ export async function POST(req: Request) {
   const notes = body?.notes ? String(body.notes) : null;
 
   const parsedFlags = parseFlags(body?.flags);
-  if (!parsedFlags.ok)
-    return json({ error: parsedFlags.error }, { status: 400 });
+  if (!parsedFlags.ok) return json({ error: parsedFlags.error }, { status: 400 });
 
   // POST always sets flags (default empty)
   const flags: TransactionFlag[] = parsedFlags.value ?? [];
@@ -230,14 +329,10 @@ export async function POST(req: Request) {
   // Convention: negative => EXPENSE, positive => INCOME
   const typeFromBody = parseTransactionType(body?.type);
   if (body?.type !== undefined && !typeFromBody) {
-    return json(
-      { error: 'type must be "EXPENSE" or "INCOME"' },
-      { status: 400 }
-    );
+    return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
   }
 
-  const inferredType: TransactionType =
-    amountCentsInput < 0 ? "EXPENSE" : "INCOME";
+  const inferredType: TransactionType = amountCentsInput < 0 ? "EXPENSE" : "INCOME";
   const type: TransactionType = typeFromBody ?? inferredType;
 
   // Canonical: store positive cents in DB
@@ -248,7 +343,7 @@ export async function POST(req: Request) {
       userId,
       date,
       amountCents,
-      type, // <-- requires schema update (next step)
+      type,
       description,
       notes,
       flags,
@@ -257,7 +352,10 @@ export async function POST(req: Request) {
     include: { category: true },
   });
 
-  return json(created, { status: 201 });
+  return json(created, {
+    status: 201,
+    headers: setCookie ? { "Set-Cookie": setCookie } : undefined,
+  });
 }
 
 /**
@@ -266,7 +364,7 @@ export async function POST(req: Request) {
  * { description?, amountCents?, type?, date?, notes?, flags?, categoryId? (string|null) }
  */
 export async function PATCH(req: Request) {
-  const userId = await getAuthedUserId();
+  const { userId } = await getUserIdOrNull();
   if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
 
   const id = parseIdFromUrl(req);
@@ -291,19 +389,14 @@ export async function PATCH(req: Request) {
 
   if (body?.description !== undefined) {
     const description = String(body.description ?? "").trim();
-    if (!description)
-      return json(
-        { error: "description cannot be empty" },
-        { status: 400 }
-      );
+    if (!description) return json({ error: "description cannot be empty" }, { status: 400 });
     data.description = description;
   }
 
   // type can be updated
   if (body?.type !== undefined) {
     const t = parseTransactionType(body.type);
-    if (!t)
-      return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    if (!t) return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
     data.type = t;
   }
 
@@ -321,10 +414,7 @@ export async function PATCH(req: Request) {
       return json({ error: "amountCents cannot be 0" }, { status: 400 });
     }
 
-    // Backward compatible behavior:
-    // - if client sends negative amount and no explicit type in this PATCH, infer type from sign
-    // Convention: negative => EXPENSE, positive => INCOME
-    // - always store absolute cents
+    // If client sends signed amount and no explicit type, infer type from sign
     if (body?.type === undefined) {
       data.type = amountCentsInput < 0 ? "EXPENSE" : "INCOME";
     }
@@ -346,16 +436,12 @@ export async function PATCH(req: Request) {
   if (body?.flags !== undefined) {
     const parsed = parseFlags(body.flags);
     if (!parsed.ok) return json({ error: parsed.error }, { status: 400 });
-
     data.flags = parsed.value ?? [];
   }
 
   if (body?.categoryId !== undefined) {
     const raw = body.categoryId;
-
-    // allow null/"" to clear category
-    const categoryId =
-      raw === null || raw === "" || raw === undefined ? null : String(raw);
+    const categoryId = raw === null || raw === "" || raw === undefined ? null : String(raw);
 
     if (categoryId) {
       const ok = await assertCategoryBelongsToUser(userId, categoryId);
@@ -382,7 +468,7 @@ export async function PATCH(req: Request) {
  * DELETE /api/finance/transactions?id=TRANSACTION_ID
  */
 export async function DELETE(req: Request) {
-  const userId = await getAuthedUserId();
+  const { userId } = await getUserIdOrNull();
   if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
 
   const id = parseIdFromUrl(req);

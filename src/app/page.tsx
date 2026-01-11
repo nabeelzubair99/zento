@@ -2,12 +2,22 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { cookies } from "next/headers";
+
+const ANON_COOKIE = "zento_anon";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
 
   // Signed-in users always land on Transactions
   if (session) {
+    redirect("/finance/transactions");
+  }
+
+  // ✅ If they previously used guest mode on this device, send them straight in
+  const jar = await cookies();
+  const hasAnon = !!jar.get(ANON_COOKIE)?.value;
+  if (hasAnon) {
     redirect("/finance/transactions");
   }
 
@@ -21,28 +31,31 @@ export default async function Home() {
           </p>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 10,
-            marginTop: 4,
-          }}
-        >
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Continue with Google
-          </Link>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 10,
+              marginTop: 4,
+            }}
+          >
+            <Link className="btn btn-primary" href="/api/auth/signin">
+              Continue with Google
+            </Link>
 
-          <span className="pill">
-            Private by default
-          </span>
-          <span className="pill">
-            Simple categories
-          </span>
-          <span className="pill">
-            Fast search
-          </span>
+            <span className="pill">Private by default</span>
+            <span className="pill">Simple categories</span>
+            <span className="pill">Fast search</span>
+          </div>
+
+          {/* ✅ Guest entry point (exactly as you requested) */}
+          <div className="subtle" style={{ fontSize: 13 }}>
+            <Link href="/finance/transactions" style={{ textDecoration: "underline" }}>
+              Continue without logging in
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -116,9 +129,13 @@ export default async function Home() {
             style={{
               paddingTop: 6,
               borderTop: "1px solid rgb(var(--border))",
+              display: "grid",
+              gap: 6,
             }}
           >
-            Your data is tied securely to your Google account.
+            <div>
+              You can use Zento as a guest. If you sign in later, your data will be tied to your account.
+            </div>
           </div>
         </div>
       </div>

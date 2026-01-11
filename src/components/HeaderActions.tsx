@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
+import { useSession } from "next-auth/react";
 
 const HOME_HREF = "/finance/transactions";
 const DASHBOARD_HREF = "/dashboard";
 const REPORTS_HREF = "/reports";
+const SIGNIN_HREF = "/api/auth/signin";
 const LOGOUT_HREF = "/api/auth/signout";
 
 function isActivePath(pathname: string, href: string) {
@@ -96,8 +98,32 @@ function IconLogout() {
   );
 }
 
+function IconLogin() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M14 7h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M10 12h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10 12l3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10 12l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M11 17H8.5C6.5 17 5 15.5 5 13.5v-3C5 8.5 6.5 7 8.5 7H11"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function HeaderActions() {
   const pathname = usePathname();
+  const { status } = useSession();
+  const isAuthed = status === "authenticated";
 
   const items = [
     {
@@ -118,12 +144,24 @@ export function HeaderActions() {
       icon: <IconFilter active={isActivePath(pathname, REPORTS_HREF)} />,
       active: isActivePath(pathname, REPORTS_HREF),
     },
-    {
-      href: LOGOUT_HREF,
-      label: "Logout",
-      icon: <IconLogout />,
-      active: false,
-    },
+
+    ...(isAuthed
+      ? [
+          {
+            href: LOGOUT_HREF,
+            label: "Logout",
+            icon: <IconLogout />,
+            active: false,
+          },
+        ]
+      : [
+          {
+            href: SIGNIN_HREF,
+            label: "Sign in",
+            icon: <IconLogin />,
+            active: false,
+          },
+        ]),
   ];
 
   return (

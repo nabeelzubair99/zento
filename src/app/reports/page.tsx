@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 // NOTE: This import path assumes TransactionRow lives here (based on your project structure)
 import { TransactionRow } from "@/app/finance/transactions/TransactionRow";
 
+import { cookies } from "next/headers";
+import crypto from "crypto";
+
 type TransactionType = "EXPENSE" | "INCOME";
 
 function formatDate(d: Date) {
@@ -63,63 +66,72 @@ type TxItem = {
   category: { name: string } | null;
 };
 
+/** ----------------------------
+ * Anonymous session support
+ * ---------------------------- */
+const ANON_COOKIE = "zento_anon";
+
+function hashToken(raw: string) {
+  return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+async function getUserContext(): Promise<{
+  userId: string | null;
+  label: string;
+  isAuthed: boolean;
+}> {
+  const session = await getServerSession(authOptions);
+
+  // Prefer id if present (via callbacks.session)
+  const sessionUserId = (session?.user as any)?.id as string | undefined;
+  if (sessionUserId) {
+    const email = session?.user?.email ?? "your account";
+    return { userId: sessionUserId, label: `Signed in as ${email}`, isAuthed: true };
+  }
+
+  // Fallback: if session has email but not id, resolve user id
+  const email = session?.user?.email;
+  if (email) {
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (user?.id) {
+      return { userId: user.id, label: `Signed in as ${email}`, isAuthed: true };
+    }
+  }
+
+  // ✅ cookies() is NOT async in Next App Router
+  const jar = await cookies();
+  const raw = jar.get(ANON_COOKIE)?.value;
+
+  if (!raw) return { userId: null, label: "Using Zento on this device", isAuthed: false };
+
+  const tokenHash = hashToken(raw);
+
+  const sess = await prisma.anonSession.findUnique({
+    where: { tokenHash },
+    select: { id: true, userId: true, expiresAt: true },
+  });
+
+  if (!sess) return { userId: null, label: "Using Zento on this device", isAuthed: false };
+  if (sess.expiresAt && sess.expiresAt.getTime() < Date.now()) {
+    return { userId: null, label: "Using Zento on this device", isAuthed: false };
+  }
+
+  // Touch lastSeenAt (best-effort)
+  prisma.anonSession
+    .update({ where: { id: sess.id }, data: { lastSeenAt: new Date() } })
+    .catch(() => {});
+
+  return { userId: sess.userId, label: "Using Zento on this device", isAuthed: false };
+}
+
 export default async function ReportsPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">Reports</h1>
-            <p className="subtle">Sign in to view your reports.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const email = session.user?.email;
-  if (!email) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">Unauthorized</h1>
-            <p className="subtle">Please sign in again.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true },
-  });
-
-  if (!user) {
-    return (
-      <main className="card">
-        <div className="card-header">
-          <div>
-            <h1 className="h1">User not found</h1>
-            <p className="subtle">Try signing out and back in.</p>
-          </div>
-          <Link className="btn btn-primary" href="/api/auth/signin">
-            Sign in
-          </Link>
-        </div>
-      </main>
-    );
-  }
+  const { userId, label, isAuthed } = await getUserContext();
 
   const q = (params?.q ?? "").trim();
   const month = parseMonthParam(params?.month) || currentMonthYYYYMM();
@@ -130,31 +142,38 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const start = new Date(Date.UTC(y, m - 1, 1));
   const end = new Date(Date.UTC(y, m, 1));
 
-  const categories = await prisma.category.findMany({
-    where: { userId: user.id },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
+  const emptyState = !userId;
+
+  // These become empty if we don't have a user yet.
+  const categories = emptyState
+    ? []
+    : await prisma.category.findMany({
+        where: { userId: userId! },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      });
 
   const searchWhere = buildSearchWhere(q);
 
   const categoryWhere =
     categoryId && categoryId !== ""
       ? categoryId === "uncategorized"
-        ? { categoryId: null }
+        ? { categoryId: null as any }
         : { categoryId }
       : {};
 
-  const items: TxItem[] = await prisma.transaction.findMany({
-    where: {
-      userId: user.id,
-      date: { gte: start, lt: end },
-      ...searchWhere,
-      ...categoryWhere,
-    },
-    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-    include: { category: { select: { name: true } } },
-  });
+  const items: TxItem[] = emptyState
+    ? []
+    : await prisma.transaction.findMany({
+        where: {
+          userId: userId!,
+          date: { gte: start, lt: end },
+          ...searchWhere,
+          ...categoryWhere,
+        },
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        include: { category: { select: { name: true } } },
+      });
 
   return (
     <main style={{ display: "grid", gap: 20 }}>
@@ -165,10 +184,26 @@ export default async function ReportsPage({ searchParams }: PageProps) {
               Reports
             </h1>
             <div className="subtle">Filter & review transactions.</div>
+
+            <div className="subtle" style={{ fontSize: 12 }}>
+              {label}
+              {!isAuthed ? (
+                <>
+                  {" • "}
+                  <Link
+                    href="/api/auth/signin"
+                    className="subtle"
+                    style={{ textDecoration: "underline" }}
+                  >
+                    Sign in to sync
+                  </Link>
+                </>
+              ) : null}
+            </div>
           </div>
 
           <div className="subtle" style={{ textAlign: "right" }}>
-            Signed in as {email}
+            {isAuthed ? "Synced" : "Guest mode"}
           </div>
         </div>
       </section>
@@ -186,17 +221,34 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           <form method="GET" style={{ display: "grid", gap: 14 }}>
             <div style={{ display: "grid", gap: 6 }}>
               <label className="subtle">Month</label>
-              <input className="input" type="month" name="month" defaultValue={month} style={{ width: "fit-content" }} />
+              <input
+                className="input"
+                type="month"
+                name="month"
+                defaultValue={month}
+                style={{ width: "fit-content" }}
+              />
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
               <label className="subtle">Search</label>
-              <input className="input" name="q" defaultValue={q} placeholder="Search description or notes…" />
+              <input
+                className="input"
+                name="q"
+                defaultValue={q}
+                placeholder="Search description or notes…"
+              />
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
               <label className="subtle">Category</label>
-              <select className="select" name="categoryId" defaultValue={categoryId} style={{ minWidth: 260 }}>
+              <select
+                className="select"
+                name="categoryId"
+                defaultValue={categoryId}
+                style={{ minWidth: 260 }}
+                disabled={emptyState}
+              >
                 <option value="">All categories</option>
                 <option value="uncategorized">Uncategorized</option>
                 {categories.map((c) => (
@@ -205,10 +257,16 @@ export default async function ReportsPage({ searchParams }: PageProps) {
                   </option>
                 ))}
               </select>
+
+              {emptyState ? (
+                <div className="subtle" style={{ fontSize: 12 }}>
+                  Add your first transaction to unlock categories + reporting.
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <button className="btn btn-primary" type="submit">
+              <button className="btn btn-primary" type="submit" disabled={emptyState}>
                 Apply
               </button>
 
@@ -238,7 +296,17 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         </div>
 
         <div className="card-body">
-          {items.length === 0 ? (
+          {emptyState ? (
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ fontWeight: 650 }}>Nothing to report yet.</div>
+              <div className="subtle">
+                Add your first transaction and your reports will populate.
+              </div>
+              <Link className="btn btn-primary" href="/finance/transactions" style={{ width: "fit-content" }}>
+                Add a transaction
+              </Link>
+            </div>
+          ) : items.length === 0 ? (
             <div className="subtle">No matches. Try adjusting filters.</div>
           ) : (
             <ul style={{ display: "grid", gap: 10, listStyle: "none", padding: 0, margin: 0 }}>

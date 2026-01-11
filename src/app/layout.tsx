@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { HeaderActions } from "@/components/HeaderActions";
 
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import Providers from "@/components/Providers";
+
 export const metadata: Metadata = {
   title: "Zento",
   description: "A calm, simple way to track your finances.",
@@ -42,40 +46,44 @@ function ZentoMark() {
   );
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const session = await getServerSession(authOptions);
+
   return (
     <html lang="en">
       <body className="app-shell">
-        <div className="container-app">
-          {/* Top brand bar */}
-          <header
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              justifyContent: "space-between",
-              gap: 16,
-              marginBottom: 28,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <ZentoMark />
+        {/* ✅ This makes useSession() work in HeaderActions */}
+        <Providers session={session}>
+          <div className="container-app">
+            {/* Top brand bar */}
+            <header
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "space-between",
+                gap: 16,
+                marginBottom: 28,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <ZentoMark />
 
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>Zento</div>
-                <div className="subtle">Warm, clear money tracking</div>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1.1 }}>Zento</div>
+                  <div className="subtle">Warm, clear money tracking</div>
+                </div>
               </div>
-            </div>
 
-            {/* ✅ Icons live where "Beta" used to be */}
-            <HeaderActions />
-          </header>
+              <HeaderActions />
+            </header>
 
-          {children}
+            {children}
 
-          <footer className="subtle" style={{ marginTop: 40 }}>
-            <span>© {new Date().getFullYear()} Zento</span>
-          </footer>
-        </div>
+            <footer className="subtle" style={{ marginTop: 40 }}>
+              <span>© {new Date().getFullYear()} Zento</span>
+            </footer>
+          </div>
+        </Providers>
       </body>
     </html>
   );

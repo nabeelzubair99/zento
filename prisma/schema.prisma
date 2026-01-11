@@ -13,13 +13,36 @@ model User {
   image         String?
   emailVerified DateTime?
 
+  // ✅ New: anonymous user support
+  isAnonymous   Boolean  @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  accounts     Account[]
-  categories   Category[]
-  sessions     Session[]
-  transactions Transaction[]
+  accounts      Account[]
+  categories    Category[]
+  sessions      Session[]
+  transactions  Transaction[]
+
+  // ✅ New relation
+  anonSessions  AnonSession[]
+}
+
+model AnonSession {
+  id           String   @id @default(cuid())
+  userId       String
+
+  // Store ONLY a hash of the cookie token (never the raw token)
+  tokenHash    String   @unique
+
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+  expiresAt    DateTime?
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Category {
