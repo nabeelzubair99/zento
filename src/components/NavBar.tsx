@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
+import { signOut } from "next-auth/react";
 
 type NavItem = {
   href: string;
@@ -113,19 +114,22 @@ export function NavBar({
       href: homeHref,
       label: "Home",
       icon: <IconHome active={isActivePath(pathname, homeHref)} />,
+      kind: "link",
     },
     {
       href: dashboardHref,
       label: "Dashboard",
       icon: <IconDashboard active={isActivePath(pathname, dashboardHref)} />,
+      kind: "link",
     },
     {
       href: reportsHref,
       label: "Reports",
       icon: <IconFilter active={isActivePath(pathname, reportsHref)} />,
+      kind: "link",
     },
     {
-      href: "/api/auth/signout",
+      href: "#logout",
       label: "Logout",
       icon: <IconLogout />,
       kind: "logout",
@@ -134,10 +138,35 @@ export function NavBar({
 
   return (
     <>
-      {/* Desktop nav (unchanged) */}
+      {/* Desktop nav */}
       <div className="navDesktop" style={{ display: "flex", gap: 10 }}>
         {items.map((it) => {
           const active = it.kind !== "logout" && isActivePath(pathname, it.href);
+
+          if (it.kind === "logout") {
+            return (
+              <button
+                key={it.label}
+                type="button"
+                aria-label={it.label}
+                title={it.label}
+                onClick={() => signOut({ callbackUrl: "/" })}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 40,
+                  height: 40,
+                  borderRadius: 12,
+                  border: "1px solid rgb(var(--border))",
+                  background: "rgb(var(--surface))",
+                  cursor: "pointer",
+                }}
+              >
+                {it.icon}
+              </button>
+            );
+          }
 
           return (
             <Link
@@ -167,6 +196,26 @@ export function NavBar({
       <nav className="navMobile">
         {items.map((it) => {
           const active = it.kind !== "logout" && isActivePath(pathname, it.href);
+
+          if (it.kind === "logout") {
+            return (
+              <button
+                key={it.label}
+                type="button"
+                className={`navMobileItem ${active ? "isActive" : ""}`}
+                onClick={() => signOut({ callbackUrl: "/" })}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                }}
+              >
+                {it.icon}
+                <span>{it.label}</span>
+              </button>
+            );
+          }
 
           return (
             <Link

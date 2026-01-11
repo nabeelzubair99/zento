@@ -2,9 +2,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { cookies } from "next/headers";
-
-const ANON_COOKIE = "zento_anon";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -14,12 +11,8 @@ export default async function Home() {
     redirect("/finance/transactions");
   }
 
-  // ✅ If they previously used guest mode on this device, send them straight in
-  const jar = await cookies();
-  const hasAnon = !!jar.get(ANON_COOKIE)?.value;
-  if (hasAnon) {
-    redirect("/finance/transactions");
-  }
+  // ✅ Do NOT auto-redirect guests based on the anon cookie.
+  // Logout should land here (first screen) consistently.
 
   return (
     <main className="card card--raised">
@@ -50,7 +43,7 @@ export default async function Home() {
             <span className="pill">Fast search</span>
           </div>
 
-          {/* ✅ Guest entry point (exactly as you requested) */}
+          {/* ✅ Guest entry point */}
           <div className="subtle" style={{ fontSize: 13 }}>
             <Link href="/finance/transactions" style={{ textDecoration: "underline" }}>
               Continue without logging in
@@ -134,7 +127,8 @@ export default async function Home() {
             }}
           >
             <div>
-              You can use Zento as a guest. If you sign in later, your data will be tied to your account.
+              You can use Zento as a guest. If you sign in later, you’ll be asked whether to import
+              your guest data into your account.
             </div>
           </div>
         </div>

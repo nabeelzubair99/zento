@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 
 const HOME_HREF = "/finance/transactions";
 const DASHBOARD_HREF = "/dashboard";
 const REPORTS_HREF = "/reports";
 const SIGNIN_HREF = "/api/auth/signin";
-const LOGOUT_HREF = "/api/auth/signout";
 
 function isActivePath(pathname: string, href: string) {
   if (pathname === href) return true;
@@ -125,33 +124,47 @@ export function HeaderActions() {
   const { status } = useSession();
   const isAuthed = status === "authenticated";
 
+  const commonStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    border: "1px solid rgb(var(--border))",
+    background: "rgb(var(--surface))",
+  };
+
   const items = [
     {
       href: HOME_HREF,
       label: "Capture",
       icon: <IconHome active={isActivePath(pathname, HOME_HREF)} />,
       active: isActivePath(pathname, HOME_HREF),
+      kind: "link" as const,
     },
     {
       href: DASHBOARD_HREF,
       label: "Dashboard",
       icon: <IconDashboard active={isActivePath(pathname, DASHBOARD_HREF)} />,
       active: isActivePath(pathname, DASHBOARD_HREF),
+      kind: "link" as const,
     },
     {
       href: REPORTS_HREF,
       label: "Reports",
       icon: <IconFilter active={isActivePath(pathname, REPORTS_HREF)} />,
       active: isActivePath(pathname, REPORTS_HREF),
+      kind: "link" as const,
     },
-
     ...(isAuthed
       ? [
           {
-            href: LOGOUT_HREF,
+            href: "#logout",
             label: "Logout",
             icon: <IconLogout />,
             active: false,
+            kind: "logout" as const,
           },
         ]
       : [
@@ -160,6 +173,7 @@ export function HeaderActions() {
             label: "Sign in",
             icon: <IconLogin />,
             active: false,
+            kind: "link" as const,
           },
         ]),
   ];
@@ -167,20 +181,25 @@ export function HeaderActions() {
   return (
     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
       {items.map((it) => {
-        const commonStyle: React.CSSProperties = {
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 40,
-          height: 40,
-          borderRadius: 12,
-          border: "1px solid rgb(var(--border))",
-          background: "rgb(var(--surface))",
-        };
-
         const activeStyle: React.CSSProperties = it.active
           ? { boxShadow: "0 0 0 3px rgba(0,0,0,0.06)" }
           : {};
+
+        if (it.kind === "logout") {
+          return (
+            <button
+              key={it.label}
+              type="button"
+              aria-label={it.label}
+              title={it.label}
+              className="btn btn-ghost"
+              style={{ ...commonStyle, ...activeStyle, cursor: "pointer" }}
+              onClick={() => signOut({ callbackUrl: "/" })}
+            >
+              {it.icon}
+            </button>
+          );
+        }
 
         return (
           <Link

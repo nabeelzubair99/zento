@@ -17,6 +17,20 @@ function json(data: unknown, init?: ResponseInit) {
   });
 }
 
+function parseLocalDateOnly(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const m = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+
+  // Create a local-time date (prevents UTC shift)
+  const dt = new Date(y, mo - 1, d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
 /** ----------------------------
  * Anonymous session support
  * ---------------------------- */
@@ -233,13 +247,16 @@ export async function GET(req: Request) {
 
   // Month filter
   const parsedMonth = parseMonth(url.searchParams.get("month"));
-  if (!parsedMonth.ok) return json({ error: parsedMonth.error }, { status: 400 });
+  if (!parsedMonth.ok)
+    return json({ error: parsedMonth.error }, { status: 400 });
 
   // Optional search filter
   const q = (url.searchParams.get("q") ?? "").trim();
 
   // Optional category filter
-  const categoryFilter = parseCategoryFilter(url.searchParams.get("categoryId"));
+  const categoryFilter = parseCategoryFilter(
+    url.searchParams.get("categoryId")
+  );
 
   const transactions = await prisma.transaction.findMany({
     where: {
@@ -282,7 +299,8 @@ export async function POST(req: Request) {
   const notes = body?.notes ? String(body.notes) : null;
 
   const parsedFlags = parseFlags(body?.flags);
-  if (!parsedFlags.ok) return json({ error: parsedFlags.error }, { status: 400 });
+  if (!parsedFlags.ok)
+    return json({ error: parsedFlags.error }, { status: 400 });
 
   // POST always sets flags (default empty)
   const flags: TransactionFlag[] = parsedFlags.value ?? [];
@@ -290,18 +308,22 @@ export async function POST(req: Request) {
   // allow null/undefined/"" to mean "no category"
   const categoryIdRaw = body?.categoryId;
   const categoryId =
-    categoryIdRaw === null || categoryIdRaw === undefined || categoryIdRaw === ""
+    categoryIdRaw === null ||
+    categoryIdRaw === undefined ||
+    categoryIdRaw === ""
       ? null
       : String(categoryIdRaw);
 
-  const date = new Date(body?.date);
-  if (Number.isNaN(date.getTime())) {
+  const date = parseLocalDateOnly(body?.date);
+  if (!date) {
     return json({ error: "Invalid date" }, { status: 400 });
   }
 
   const amountCentsRaw = body?.amountCents;
   const amountCentsInput =
-    typeof amountCentsRaw === "string" ? Number(amountCentsRaw) : amountCentsRaw;
+    typeof amountCentsRaw === "string"
+      ? Number(amountCentsRaw)
+      : amountCentsRaw;
 
   if (!Number.isInteger(amountCentsInput)) {
     return json({ error: "amountCents must be an integer" }, { status: 400 });
@@ -329,10 +351,14 @@ export async function POST(req: Request) {
   // Convention: negative => EXPENSE, positive => INCOME
   const typeFromBody = parseTransactionType(body?.type);
   if (body?.type !== undefined && !typeFromBody) {
-    return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    return json(
+      { error: 'type must be "EXPENSE" or "INCOME"' },
+      { status: 400 }
+    );
   }
 
-  const inferredType: TransactionType = amountCentsInput < 0 ? "EXPENSE" : "INCOME";
+  const inferredType: TransactionType =
+    amountCentsInput < 0 ? "EXPENSE" : "INCOME";
   const type: TransactionType = typeFromBody ?? inferredType;
 
   // Canonical: store positive cents in DB
@@ -389,14 +415,19 @@ export async function PATCH(req: Request) {
 
   if (body?.description !== undefined) {
     const description = String(body.description ?? "").trim();
-    if (!description) return json({ error: "description cannot be empty" }, { status: 400 });
+    if (!description)
+      return json({ error: "description cannot be empty" }, { status: 400 });
     data.description = description;
   }
 
   // type can be updated
   if (body?.type !== undefined) {
     const t = parseTransactionType(body.type);
-    if (!t) return json({ error: 'type must be "EXPENSE" or "INCOME"' }, { status: 400 });
+    if (!t)
+      return json(
+        { error: 'type must be "EXPENSE" or "INCOME"' },
+        { status: 400 }
+      );
     data.type = t;
   }
 
@@ -422,15 +453,16 @@ export async function PATCH(req: Request) {
   }
 
   if (body?.date !== undefined) {
-    const date = new Date(body.date);
-    if (Number.isNaN(date.getTime())) {
+    const date = parseLocalDateOnly(body?.date);
+    if (!date) {
       return json({ error: "Invalid date" }, { status: 400 });
     }
     data.date = date;
   }
 
   if (body?.notes !== undefined) {
-    data.notes = body.notes === null || body.notes === "" ? null : String(body.notes);
+    data.notes =
+      body.notes === null || body.notes === "" ? null : String(body.notes);
   }
 
   if (body?.flags !== undefined) {
@@ -441,7 +473,8 @@ export async function PATCH(req: Request) {
 
   if (body?.categoryId !== undefined) {
     const raw = body.categoryId;
-    const categoryId = raw === null || raw === "" || raw === undefined ? null : String(raw);
+    const categoryId =
+      raw === null || raw === "" || raw === undefined ? null : String(raw);
 
     if (categoryId) {
       const ok = await assertCategoryBelongsToUser(userId, categoryId);
