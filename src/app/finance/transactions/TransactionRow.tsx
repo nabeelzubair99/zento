@@ -2,8 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { AccountSelect } from "@/components/AccountSelect";
 
 type Category = { id: string; name: string };
+
+type PaymentSourceType = "BANK" | "CARD" | "CASH";
+type PaymentSource = { id: string; name: string; type: PaymentSourceType };
 
 type TransactionType = "EXPENSE" | "INCOME";
 
@@ -76,6 +80,10 @@ export function TransactionRow(props: {
   categoryId?: string | null;
   categoryName?: string | null;
 
+  // ✅ NEW (optional)
+  paymentSourceId?: string | null;
+  paymentSourceName?: string | null;
+
   notes?: string | null;
   flags?: TxFlag[] | null;
 }) {
@@ -94,6 +102,11 @@ export function TransactionRow(props: {
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(false);
   const [categoriesError, setCategoriesError] = React.useState<string | null>(null);
 
+  // Payment sources state (loaded only when editing)
+  const [paymentSources, setPaymentSources] = React.useState<PaymentSource[]>([]);
+  const [isLoadingPaymentSources, setIsLoadingPaymentSources] = React.useState(false);
+  const [paymentSourcesError, setPaymentSourcesError] = React.useState<string | null>(null);
+
   const [desc, setDesc] = React.useState(props.description);
 
   // Store as ABS value in the input; type determines direction.
@@ -104,6 +117,9 @@ export function TransactionRow(props: {
   const [txType, setTxType] = React.useState<TransactionType>(props.type);
   const [date, setDate] = React.useState(isoToDateInputValue(props.dateISO));
   const [categoryId, setCategoryId] = React.useState<string>(props.categoryId ?? "");
+
+  // ✅ payment source local state
+  const [paymentSourceId, setPaymentSourceId] = React.useState<string>(props.paymentSourceId ?? "");
 
   // Notes + flags local state
   const [notes, setNotes] = React.useState<string>(props.notes ?? "");
@@ -137,6 +153,31 @@ export function TransactionRow(props: {
     }
   }
 
+  async function loadPaymentSourcesOnce() {
+    if (paymentSources.length > 0) return;
+
+    setIsLoadingPaymentSources(true);
+    setPaymentSourcesError(null);
+
+    try {
+      const res = await fetch("/api/finance/payment-sources", { cache: "no-store" });
+
+      // Soft-fail if route isn't present or returns error
+      if (!res.ok) {
+        setPaymentSources([]);
+        return;
+      }
+
+      const data = (await res.json()) as PaymentSource[];
+      setPaymentSources(Array.isArray(data) ? data : []);
+    } catch {
+      setPaymentSourcesError("Failed to load payment methods.");
+      setPaymentSources([]);
+    } finally {
+      setIsLoadingPaymentSources(false);
+    }
+  }
+
   // Keep local fields in sync when not editing
   React.useEffect(() => {
     if (!isEditing) {
@@ -145,6 +186,7 @@ export function TransactionRow(props: {
       setTxType(props.type);
       setDate(isoToDateInputValue(props.dateISO));
       setCategoryId(props.categoryId ?? "");
+      setPaymentSourceId(props.paymentSourceId ?? "");
       setNotes(props.notes ?? "");
       setFlags(props.flags ?? []);
       setShowDetails(!!(props.notes || (props.flags?.length ?? 0) > 0));
@@ -156,15 +198,17 @@ export function TransactionRow(props: {
     props.type,
     props.dateISO,
     props.categoryId,
+    props.paymentSourceId,
     props.notes,
     props.flags,
     isEditing,
   ]);
 
-  // Autofocus + load categories when editing
+  // Autofocus + load lists when editing
   React.useEffect(() => {
     if (isEditing) {
       void loadCategoriesOnce();
+      void loadPaymentSourcesOnce();
       setTimeout(() => descInputRef.current?.focus(), 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,10 +225,9 @@ export function TransactionRow(props: {
     setError(null);
     setIsSaving(true);
     try {
-      const res = await fetch(
-        `/api/finance/transactions?id=${encodeURIComponent(props.id)}`,
-        { method: "DELETE" }
-      );
+      const res = await fetch(`/api/finance/transactions?id=${encodeURIComponent(props.id)}`, {
+        method: "DELETE",
+      });
 
       if (!res.ok) {
         setError(await readErrorMessage(res));
@@ -243,22 +286,20 @@ export function TransactionRow(props: {
 
     setIsSaving(true);
     try {
-      const res = await fetch(
-        `/api/finance/transactions?id=${encodeURIComponent(props.id)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            description,
-            amountCents: amountCentsAbs, // store abs
-            type: txType,
-            date,
-            categoryId: categoryId || null,
-            notes: notes.trim() ? notes.trim() : null,
-            flags,
-          }),
-        }
-      );
+      const res = await fetch(`/api/finance/transactions?id=${encodeURIComponent(props.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description,
+          amountCents: amountCentsAbs, // store abs
+          type: txType,
+          date,
+          categoryId: categoryId || null,
+          paymentSourceId: paymentSourceId || null, // ✅ NEW
+          notes: notes.trim() ? notes.trim() : null,
+          flags,
+        }),
+      });
 
       if (!res.ok) {
         setError(await readErrorMessage(res));
@@ -310,6 +351,13 @@ export function TransactionRow(props: {
 
                 {props.categoryName ? (
                   <span className="pill pill-accent">{props.categoryName}</span>
+                ) : null}
+
+                {/* ✅ Payment method pill (only if present) */}
+                {props.paymentSourceName ? (
+                  <span className="pill" title="Payment method">
+                    {props.paymentSourceName}
+                  </span>
                 ) : null}
               </div>
 
@@ -589,7 +637,8 @@ export function TransactionRow(props: {
                       borderRadius: 0,
                       padding: "8px 12px",
                       fontWeight: 650,
-                      background: txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                      background:
+                        txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
                     }}
                   >
                     Expense
@@ -603,7 +652,8 @@ export function TransactionRow(props: {
                       borderRadius: 0,
                       padding: "8px 12px",
                       fontWeight: 650,
-                      background: txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                      background:
+                        txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
                     }}
                   >
                     Income
@@ -634,6 +684,26 @@ export function TransactionRow(props: {
                 disabled={isSaving}
               />
             </div>
+          </div>
+
+          {/* ✅ Payment method */}
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="subtle">Account (optional)</label>
+
+            <AccountSelect
+              value={paymentSourceId}
+              onChange={setPaymentSourceId}
+              items={paymentSources}
+              disabled={isSaving || isLoadingPaymentSources}
+              loading={isLoadingPaymentSources}
+              maxWidth={360}
+            />
+
+            {paymentSourcesError ? (
+              <span style={{ fontSize: 12, color: "rgb(var(--danger))" }}>
+                {paymentSourcesError}
+              </span>
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gap: 6 }}>

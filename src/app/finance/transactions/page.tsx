@@ -57,7 +57,7 @@ async function getUserContext(): Promise<{
     }
   }
 
-  // ✅ cookies() is NOT async in Next App Router
+  // ✅ cookies() is synchronous in Next App Router
   const jar = await cookies();
   const raw = jar.get(ANON_COOKIE)?.value;
 
@@ -91,20 +91,20 @@ async function getUserContext(): Promise<{
   return { userId: sess.userId, label: "Using Zento on this device", isAuthed: false };
 }
 
-type PageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-};
-
-export default async function TransactionsPage({ searchParams }: PageProps) {
-  await searchParams;
-
+export default async function TransactionsPage() {
   const { userId, label, isAuthed } = await getUserContext();
 
-  // If we have a userId (authed or anon), we can count and list transactions.
-  // If not, still render the page and let the first POST create the anon cookie.
-  const totalCountEver = userId
-    ? await prisma.transaction.count({ where: { userId } })
-    : 0;
+  const totalCountEver = userId ? await prisma.transaction.count({ where: { userId } }) : 0;
+
+  // ✅ Option B: preselect AddTransactionForm account using user default
+  const defaultPaymentSourceId: string | null = userId
+    ? (
+        await prisma.user.findUnique({
+          where: { id: userId },
+          select: { defaultTransactionsPaymentSourceId: true },
+        })
+      )?.defaultTransactionsPaymentSourceId ?? null
+    : null;
 
   return (
     <main className="z-page">
@@ -143,16 +143,28 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           </div>
         </div>
         <div className="card-body">
-          <AddTransactionForm />
+          {/* ✅ This is the entire preselect behavior */}
+          <AddTransactionForm defaultPaymentSourceId={defaultPaymentSourceId} />
+
+          {/* Keep Profile as primary for managing defaults */}
+          {isAuthed ? (
+            <div className="subtle" style={{ fontSize: 12, marginTop: 10 }}>
+              Manage your default account in{" "}
+              <Link href="/profile" style={{ textDecoration: "underline" }}>
+                Profile
+              </Link>
+              .
+            </div>
+          ) : null}
         </div>
       </section>
 
       {/* Recent list */}
       <section className="card flex-1 min-h-0 flex flex-col">
-        <div className="card-header shrink-0">
+        <div className="card-header shrink-0" style={{ display: "grid", gap: 10 }}>
           <div>
             <div className="h2">Recent transactions</div>
-            <div className="subtle">Your last 5 entries.</div>
+            <div className="subtle">Showing your last 5 transactions (all accounts).</div>
           </div>
         </div>
 
@@ -160,9 +172,7 @@ export default async function TransactionsPage({ searchParams }: PageProps) {
           {!userId ? (
             <div style={{ display: "grid", gap: 10 }}>
               <div style={{ fontWeight: 650 }}>You’re all set.</div>
-              <div className="subtle">
-                Add your first transaction and it’ll show up here.
-              </div>
+              <div className="subtle">Add your first transaction and it’ll show up here.</div>
             </div>
           ) : (
             <TransactionsList userId={userId} totalCountEver={totalCountEver} />
@@ -180,8 +190,10 @@ type TxItem = {
   type: TransactionType;
   date: Date;
   categoryId: string | null;
+  paymentSourceId: string | null;
   notes: string | null;
   category: { name: string } | null;
+  paymentSource: { name: string } | null;
   flags?: unknown;
 };
 
@@ -196,16 +208,15 @@ async function TransactionsList({
     return (
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 650 }}>You’re all set.</div>
-        <div className="subtle">
-          Add your first transaction and it’ll show up here.
-        </div>
+        <div className="subtle">Add your first transaction and it’ll show up here.</div>
       </div>
     );
   }
 
+  // ✅ Option B: always last 5, NO account filter
   const items: TxItem[] = await prisma.transaction.findMany({
     where: { userId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }],
     take: 5,
     select: {
       id: true,
@@ -214,9 +225,11 @@ async function TransactionsList({
       type: true,
       date: true,
       categoryId: true,
+      paymentSourceId: true,
       notes: true,
       flags: true,
       category: { select: { name: true } },
+      paymentSource: { select: { name: true } },
     },
   });
 
@@ -226,7 +239,6 @@ async function TransactionsList({
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Desktop-only list header row */}
       <div className="z-txListHeader">
         <span className="subtle">Showing {items.length} (last 5 entries)</span>
         <span className="subtle">Amount</span>
@@ -252,6 +264,8 @@ async function TransactionsList({
               formattedDate={formatDate(t.date)}
               categoryId={t.categoryId}
               categoryName={t.category?.name ?? null}
+              paymentSourceId={t.paymentSourceId}
+              paymentSourceName={t.paymentSource?.name ?? null}
               notes={t.notes ?? null}
               flags={(t as any).flags ?? []}
             />

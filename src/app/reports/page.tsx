@@ -8,6 +8,7 @@ import { TransactionRow } from "@/app/finance/transactions/TransactionRow";
 
 import { cookies } from "next/headers";
 import crypto from "crypto";
+import { ReportsFilters } from "./ReportsFilters";
 
 type TransactionType = "EXPENSE" | "INCOME";
 
@@ -46,11 +47,33 @@ function buildSearchWhere(q: string) {
   };
 }
 
+/** ----------------------------
+ * Payment source (account) filter helpers
+ * ---------------------------- */
+type PaymentSourceFilter =
+  | { kind: "all" }
+  | { kind: "unassigned" }
+  | { kind: "id"; id: string };
+
+function parsePaymentSourceFilter(raw?: string): PaymentSourceFilter {
+  const v = (raw ?? "").trim();
+  if (!v) return { kind: "all" };
+  if (v === "unassigned") return { kind: "unassigned" };
+  return { kind: "id", id: v };
+}
+
+function filterToValue(f: PaymentSourceFilter): string {
+  if (f.kind === "all") return "";
+  if (f.kind === "unassigned") return "unassigned";
+  return f.id;
+}
+
 type PageProps = {
   searchParams?: Promise<{
     month?: string;
     q?: string;
     categoryId?: string; // "" | "uncategorized" | real id
+    paymentSourceId?: string; // "" | "unassigned" | real id
   }>;
 };
 
@@ -61,9 +84,14 @@ type TxItem = {
   type: TransactionType;
   date: Date;
   categoryId: string | null;
+
+  paymentSourceId: string | null;
+
   notes: string | null;
   flags?: unknown;
   category: { name: string } | null;
+
+  paymentSource: { name: string } | null;
 };
 
 /** ----------------------------
@@ -102,7 +130,7 @@ async function getUserContext(): Promise<{
     }
   }
 
-  // ✅ cookies() is NOT async in Next App Router
+  // cookies() is NOT async in Next App Router
   const jar = await cookies();
   const raw = jar.get(ANON_COOKIE)?.value;
 
@@ -137,6 +165,9 @@ export default async function ReportsPage({ searchParams }: PageProps) {
   const month = parseMonthParam(params?.month) || currentMonthYYYYMM();
   const categoryId = (params?.categoryId ?? "").trim();
 
+  // account filter from query param
+  const paymentSourceFilterFromParam = parsePaymentSourceFilter(params?.paymentSourceId);
+
   // Month range (UTC)
   const [y, m] = month.split("-").map(Number);
   const start = new Date(Date.UTC(y, m - 1, 1));
@@ -144,14 +175,46 @@ export default async function ReportsPage({ searchParams }: PageProps) {
 
   const emptyState = !userId;
 
-  // These become empty if we don't have a user yet.
-  const categories = emptyState
-    ? []
-    : await prisma.category.findMany({
-        where: { userId: userId! },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      });
+  // Fetch categories + payment sources (if we have a user)
+  const [categories, paymentSources, userDefault] = emptyState
+    ? [[], [], null as { defaultTransactionsPaymentSourceId: string | null } | null]
+    : await Promise.all([
+        prisma.category.findMany({
+          where: { userId: userId! },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true },
+        }),
+        prisma.paymentSource.findMany({
+          where: { userId: userId! },
+          orderBy: [{ name: "asc" }],
+          select: { id: true, name: true, type: true },
+        }),
+        isAuthed
+          ? prisma.user.findUnique({
+              where: { id: userId! },
+              select: { defaultTransactionsPaymentSourceId: true },
+            })
+          : Promise.resolve(null),
+      ]);
+
+  // default selection behavior
+  const hasExplicitPaymentSourceParam =
+    typeof params?.paymentSourceId === "string" && params.paymentSourceId.trim() !== "";
+
+  const defaultPaymentSourceId = userDefault?.defaultTransactionsPaymentSourceId ?? null;
+
+  const effectivePaymentSourceFilter: PaymentSourceFilter = hasExplicitPaymentSourceParam
+    ? paymentSourceFilterFromParam
+    : defaultPaymentSourceId
+      ? { kind: "id", id: defaultPaymentSourceId }
+      : { kind: "all" };
+
+  // If default points to missing payment source, fall back to all
+  const safePaymentSourceFilter: PaymentSourceFilter =
+    effectivePaymentSourceFilter.kind === "id" &&
+    !paymentSources.some((p) => p.id === effectivePaymentSourceFilter.id)
+      ? { kind: "all" }
+      : effectivePaymentSourceFilter;
 
   const searchWhere = buildSearchWhere(q);
 
@@ -162,6 +225,14 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         : { categoryId }
       : {};
 
+  // Account filter -> Prisma where
+  const paymentSourceWhere =
+    safePaymentSourceFilter.kind === "unassigned"
+      ? { paymentSourceId: null as any }
+      : safePaymentSourceFilter.kind === "id"
+        ? { paymentSourceId: safePaymentSourceFilter.id }
+        : {};
+
   const items: TxItem[] = emptyState
     ? []
     : await prisma.transaction.findMany({
@@ -170,10 +241,21 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           date: { gte: start, lt: end },
           ...searchWhere,
           ...categoryWhere,
+          ...paymentSourceWhere,
         },
         orderBy: [{ date: "desc" }, { createdAt: "desc" }],
-        include: { category: { select: { name: true } } },
+        include: {
+          category: { select: { name: true } },
+          paymentSource: { select: { name: true } },
+        },
       });
+
+  const paymentSourceLabel =
+    safePaymentSourceFilter.kind === "all"
+      ? "All accounts"
+      : safePaymentSourceFilter.kind === "unassigned"
+        ? "Unassigned"
+        : paymentSources.find((p) => p.id === safePaymentSourceFilter.id)?.name ?? "Selected account";
 
   return (
     <main style={{ display: "grid", gap: 20 }}>
@@ -190,11 +272,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
               {!isAuthed ? (
                 <>
                   {" • "}
-                  <Link
-                    href="/api/auth/signin"
-                    className="subtle"
-                    style={{ textDecoration: "underline" }}
-                  >
+                  <Link href="/api/auth/signin" className="subtle" style={{ textDecoration: "underline" }}>
                     Sign in to sync
                   </Link>
                 </>
@@ -213,72 +291,24 @@ export default async function ReportsPage({ searchParams }: PageProps) {
         <div className="card-header">
           <div style={{ display: "grid", gap: 6 }}>
             <div className="h2">Filters</div>
-            <div className="subtle">Pick a month, search, or category.</div>
+            <div className="subtle">Pick a month, search, category, or account.</div>
           </div>
         </div>
 
         <div className="card-body">
-          <form method="GET" style={{ display: "grid", gap: 14 }}>
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="subtle">Month</label>
-              <input
-                className="input"
-                type="month"
-                name="month"
-                defaultValue={month}
-                style={{ width: "fit-content" }}
-              />
-            </div>
+          <ReportsFilters
+            month={month}
+            q={q}
+            categoryId={categoryId}
+            paymentSourceId={filterToValue(safePaymentSourceFilter)}
+            categories={categories}
+            paymentSources={paymentSources.map((p) => ({ id: p.id, name: p.name }))}
+            emptyState={emptyState}
+          />
 
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="subtle">Search</label>
-              <input
-                className="input"
-                name="q"
-                defaultValue={q}
-                placeholder="Search description or notes…"
-              />
-            </div>
-
-            <div style={{ display: "grid", gap: 6 }}>
-              <label className="subtle">Category</label>
-              <select
-                className="select"
-                name="categoryId"
-                defaultValue={categoryId}
-                style={{ minWidth: 260 }}
-                disabled={emptyState}
-              >
-                <option value="">All categories</option>
-                <option value="uncategorized">Uncategorized</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-
-              {emptyState ? (
-                <div className="subtle" style={{ fontSize: 12 }}>
-                  Add your first transaction to unlock categories + reporting.
-                </div>
-              ) : null}
-            </div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <button className="btn btn-primary" type="submit" disabled={emptyState}>
-                Apply
-              </button>
-
-              <Link className="btn" href={`/reports?month=${currentMonthYYYYMM()}`}>
-                Reset
-              </Link>
-
-              <div className="subtle" style={{ marginLeft: "auto" }}>
-                Showing {items.length} result{items.length === 1 ? "" : "s"}
-              </div>
-            </div>
-          </form>
+          <div className="subtle" style={{ marginTop: 12 }}>
+            Showing {items.length} result{items.length === 1 ? "" : "s"}
+          </div>
         </div>
       </section>
 
@@ -291,6 +321,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
               {month}
               {q ? ` • search: “${q}”` : ""}
               {categoryId ? ` • ${categoryId === "uncategorized" ? "Uncategorized" : "Category filter"}` : ""}
+              {` • ${paymentSourceLabel}`}
             </div>
           </div>
         </div>
@@ -299,9 +330,7 @@ export default async function ReportsPage({ searchParams }: PageProps) {
           {emptyState ? (
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ fontWeight: 650 }}>Nothing to report yet.</div>
-              <div className="subtle">
-                Add your first transaction and your reports will populate.
-              </div>
+              <div className="subtle">Add your first transaction and your reports will populate.</div>
               <Link className="btn btn-primary" href="/finance/transactions" style={{ width: "fit-content" }}>
                 Add a transaction
               </Link>
@@ -323,12 +352,14 @@ export default async function ReportsPage({ searchParams }: PageProps) {
                   <TransactionRow
                     id={t.id}
                     description={t.description}
-                    amountCents={t.amountCents} // already positive in DB
+                    amountCents={t.amountCents}
                     type={t.type}
                     dateISO={t.date.toISOString()}
                     formattedDate={formatDate(t.date)}
                     categoryId={t.categoryId}
                     categoryName={t.category?.name ?? null}
+                    paymentSourceId={t.paymentSourceId}
+                    paymentSourceName={t.paymentSource?.name ?? null}
                     notes={t.notes ?? null}
                     flags={(t as any).flags ?? []}
                   />

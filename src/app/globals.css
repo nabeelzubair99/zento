@@ -235,6 +235,103 @@ textarea.input {
   white-space: pre-wrap;
 }
 
+/* -----------------------------
+   Premium custom Select (Radix)
+   Used for Account dropdowns
+   ----------------------------- */
+
+.accSelectTrigger {
+  width: 100%;
+  max-width: 360px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  border: 1px solid rgb(var(--border));
+  border-radius: var(--radius-md);
+  padding: 11px 12px;
+
+  background: rgb(var(--surface));
+  color: rgb(var(--text));
+  font-size: 14px;
+
+  cursor: pointer;
+  transition: box-shadow 120ms ease, border-color 120ms ease, background 120ms ease, filter 120ms ease;
+}
+
+.accSelectTrigger:hover {
+  filter: brightness(0.99);
+}
+
+.accSelectTrigger[data-disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.accSelectTrigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(var(--accent), 0.12);
+  border-color: rgba(var(--accent), 0.55);
+}
+
+.accSelectIcon {
+  margin-left: 10px;
+  width: 18px;
+  height: 18px;
+  opacity: 0.65;
+  flex: 0 0 auto;
+}
+
+.accSelectContent {
+  z-index: 60;
+  min-width: var(--radix-select-trigger-width);
+
+  background: rgb(var(--surface));
+  border: 1px solid rgb(var(--border));
+  border-radius: 16px;
+
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+
+  padding: 6px;
+}
+
+.accSelectViewport {
+  max-height: 320px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.accSelectItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 10px 10px;
+  border-radius: 12px;
+
+  font-size: 14px;
+  color: rgb(var(--text));
+
+  user-select: none;
+  cursor: pointer;
+}
+
+.accSelectItem[data-highlighted] {
+  background: rgba(var(--accent), 0.10);
+}
+
+.accSelectItem[data-state="checked"] {
+  font-weight: 650;
+}
+
+.accSelectLabel {
+  padding: 8px 10px 6px 10px;
+  font-size: 12px;
+  color: rgb(var(--muted));
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;

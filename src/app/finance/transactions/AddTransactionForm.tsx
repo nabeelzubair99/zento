@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { AccountSelect } from "@/components/AccountSelect";
 
 type TransactionType = "EXPENSE" | "INCOME";
 
@@ -37,6 +38,10 @@ async function readApiError(res: Response) {
 
 type Category = { id: string; name: string };
 
+// Payment sources (accounts/cards/cash)
+type PaymentSourceType = "BANK" | "CARD" | "CASH";
+type PaymentSource = { id: string; name: string; type: PaymentSourceType };
+
 type TxFlag = "WORTH_IT" | "UNEXPECTED" | "REVIEW_LATER";
 
 const FLAG_LABELS: Record<TxFlag, string> = {
@@ -49,7 +54,11 @@ function toggleFlag(list: TxFlag[], flag: TxFlag) {
   return list.includes(flag) ? list.filter((f) => f !== flag) : [...list, flag];
 }
 
-export function AddTransactionForm() {
+export function AddTransactionForm({
+  defaultPaymentSourceId = null,
+}: {
+  defaultPaymentSourceId?: string | null;
+}) {
   const router = useRouter();
 
   const [error, setError] = React.useState<string | null>(null);
@@ -58,6 +67,21 @@ export function AddTransactionForm() {
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(true);
   const [categoryId, setCategoryId] = React.useState<string>(""); // "" = Uncategorized
+
+  // Payment sources
+  const [paymentSources, setPaymentSources] = React.useState<PaymentSource[]>([]);
+  const [isLoadingPaymentSources, setIsLoadingPaymentSources] = React.useState(true);
+
+  /**
+   * paymentSourceId:
+   * - "" means "No account"
+   * - otherwise a paymentSource.id
+   */
+  const [paymentSourceId, setPaymentSourceId] = React.useState<string>("");
+
+  // Track whether user has manually changed the account dropdown.
+  // We only want to auto-apply the default if the user hasn't touched it.
+  const userTouchedAccountRef = React.useRef(false);
 
   // Amount + type (Expense/Income)
   const [txType, setTxType] = React.useState<TransactionType | null>(null);
@@ -95,9 +119,53 @@ export function AddTransactionForm() {
     }
   }, []);
 
+  const loadPaymentSources = React.useCallback(async () => {
+    setIsLoadingPaymentSources(true);
+    try {
+      const res = await fetch("/api/finance/payment-sources", { cache: "no-store" });
+
+      // If endpoint doesn't exist yet or returns error, fail softly.
+      if (!res.ok) {
+        setPaymentSources([]);
+        return;
+      }
+
+      const data = (await res.json()) as PaymentSource[];
+      setPaymentSources(Array.isArray(data) ? data : []);
+    } catch {
+      setPaymentSources([]);
+    } finally {
+      setIsLoadingPaymentSources(false);
+    }
+  }, []);
+
   React.useEffect(() => {
     void loadCategories();
-  }, [loadCategories]);
+    void loadPaymentSources();
+  }, [loadCategories, loadPaymentSources]);
+
+  /**
+   * Auto-select the default payment source once payment sources are loaded.
+   * Only if:
+   * - user hasn't touched the dropdown yet
+   * - and a default exists
+   * - and that default is in the list
+   */
+  React.useEffect(() => {
+    if (isLoadingPaymentSources) return;
+    if (userTouchedAccountRef.current) return;
+
+    if (!defaultPaymentSourceId) {
+      // default is "All accounts / none selected" -> keep as ""
+      return;
+    }
+
+    const exists = paymentSources.some((p) => p.id === defaultPaymentSourceId);
+    if (!exists) return;
+
+    // Only set if currently empty
+    setPaymentSourceId((prev) => (prev ? prev : defaultPaymentSourceId));
+  }, [defaultPaymentSourceId, paymentSources, isLoadingPaymentSources]);
 
   const disabledAny = isSaving || isCreatingCategory;
 
@@ -215,6 +283,7 @@ export function AddTransactionForm() {
           type: txType,
           date,
           categoryId: categoryId || null,
+          paymentSourceId: paymentSourceId || null,
           notes: notes.trim() ? notes.trim() : null,
           flags,
         }),
@@ -232,6 +301,10 @@ export function AddTransactionForm() {
       setCategoryId("");
       setShowCreateCategory(false);
       setCategoryError(null);
+
+      // Reset account selection back to default (nice UX)
+      userTouchedAccountRef.current = false;
+      setPaymentSourceId(defaultPaymentSourceId ? defaultPaymentSourceId : "");
 
       setShowDetails(false);
       setNotes("");
@@ -277,7 +350,8 @@ export function AddTransactionForm() {
                       borderRadius: 0,
                       padding: "8px 12px",
                       fontWeight: 650,
-                      background: txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
+                      background:
+                        txType === "EXPENSE" ? "rgba(0,0,0,0.06)" : "transparent",
                     }}
                   >
                     Expense
@@ -291,7 +365,8 @@ export function AddTransactionForm() {
                       borderRadius: 0,
                       padding: "8px 12px",
                       fontWeight: 650,
-                      background: txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
+                      background:
+                        txType === "INCOME" ? "rgba(0,0,0,0.06)" : "transparent",
                     }}
                   >
                     Income
@@ -358,6 +433,37 @@ export function AddTransactionForm() {
               <label className="subtle">Date</label>
               <input className="input" name="date" required type="date" disabled={disabledAny} />
             </div>
+          </div>
+
+          {/* Account / payment source (optional) */}
+          <div style={{ display: "grid", gap: 6 }}>
+            <label className="subtle">Account (optional)</label>
+
+            <AccountSelect
+              value={paymentSourceId}
+              onChange={(v) => {
+                userTouchedAccountRef.current = true;
+                setPaymentSourceId(v);
+              }}
+              items={paymentSources}
+              disabled={disabledAny || isLoadingPaymentSources}
+              loading={isLoadingPaymentSources}
+              maxWidth={360}
+            />
+
+            {!isLoadingPaymentSources && paymentSources.length === 0 ? (
+              <div className="subtle" style={{ fontSize: 12 }}>
+                Add accounts in{" "}
+                <a href="/profile" style={{ textDecoration: "underline" }}>
+                  Profile
+                </a>{" "}
+                (or{" "}
+                <a href="/api/auth/signin" style={{ textDecoration: "underline" }}>
+                  sign in
+                </a>{" "}
+                to customize).
+              </div>
+            ) : null}
           </div>
 
           {/* Category */}
@@ -508,9 +614,7 @@ export function AddTransactionForm() {
             {isSaving ? "Saving..." : "Add transaction"}
           </button>
 
-          {error ? (
-            <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span>
-          ) : null}
+          {error ? <span style={{ color: "rgb(var(--danger))", fontSize: 13 }}>{error}</span> : null}
         </div>
       </form>
 
@@ -578,23 +682,19 @@ export function AddTransactionForm() {
 
         /* Mobile-only polish */
         @media (max-width: 768px) {
-          /* Stack Amount / Date instead of squishing */
           .addTxTwoCol {
             grid-template-columns: 1fr;
           }
 
-          /* Hide the long tip on very small screens (keeps UI clean) */
           .addTxTip {
             display: none;
           }
 
-          /* Make the ± button a consistent tap target */
           .addTxFlip {
             min-width: 44px;
             height: 40px;
           }
 
-          /* Make action buttons easier to tap (and prevent weird wraps) */
           .addTxActionsRow {
             display: grid;
             grid-template-columns: 1fr;
@@ -606,7 +706,6 @@ export function AddTransactionForm() {
             justify-content: center;
           }
 
-          /* Create category: stack input + button */
           .addTxCreateRow {
             display: grid;
             grid-template-columns: 1fr;
@@ -623,7 +722,6 @@ export function AddTransactionForm() {
             justify-content: center;
           }
 
-          /* Footer: full-width primary */
           .addTxFooter {
             display: grid;
             gap: 10px;

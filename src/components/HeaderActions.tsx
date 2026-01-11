@@ -8,6 +8,7 @@ import { useSession, signOut } from "next-auth/react";
 const HOME_HREF = "/finance/transactions";
 const DASHBOARD_HREF = "/dashboard";
 const REPORTS_HREF = "/reports";
+const PROFILE_HREF = "/profile";
 const SIGNIN_HREF = "/api/auth/signin";
 
 function isActivePath(pathname: string, href: string) {
@@ -67,6 +68,32 @@ function IconFilter({ active }: { active: boolean }) {
     >
       <path
         d="M4 5h16l-6.5 7.5V20l-3-1.8v-5.7L4 5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconUser({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      style={{ opacity: active ? 1 : 0.8 }}
+    >
+      <path
+        d="M20 21a8 8 0 0 0-16 0"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
@@ -155,6 +182,13 @@ export function HeaderActions() {
       label: "Reports",
       icon: <IconFilter active={isActivePath(pathname, REPORTS_HREF)} />,
       active: isActivePath(pathname, REPORTS_HREF),
+      kind: "link" as const,
+    },
+    {
+      href: PROFILE_HREF,
+      label: "Profile",
+      icon: <IconUser active={isActivePath(pathname, PROFILE_HREF)} />,
+      active: isActivePath(pathname, PROFILE_HREF),
       kind: "link" as const,
     },
     ...(isAuthed

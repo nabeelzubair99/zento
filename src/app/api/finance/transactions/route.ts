@@ -51,11 +51,9 @@ function makeCookieHeader(token: string) {
 async function getUserIdFromNextAuth(): Promise<string | null> {
   const session = await getServerSession(authOptions);
 
-  // Prefer id if present (we added it via callbacks.session)
   const id = (session?.user as { id?: string } | undefined)?.id;
   if (id) return id;
 
-  // Fallback: email lookup (kept for safety)
   const email = session?.user?.email;
   if (!email) return null;
 
@@ -68,7 +66,6 @@ async function getUserIdFromNextAuth(): Promise<string | null> {
 }
 
 async function getUserIdFromAnonCookie(): Promise<string | null> {
-  // ✅ cookies() is synchronous in route handlers
   const jar = await cookies();
   const raw = jar.get(ANON_COOKIE)?.value;
   if (!raw) return null;
@@ -83,7 +80,6 @@ async function getUserIdFromAnonCookie(): Promise<string | null> {
   if (!sess) return null;
   if (sess.expiresAt && sess.expiresAt.getTime() < Date.now()) return null;
 
-  // Touch lastSeenAt (best-effort)
   prisma.anonSession
     .update({
       where: { id: sess.id },
@@ -94,10 +90,6 @@ async function getUserIdFromAnonCookie(): Promise<string | null> {
   return sess.userId;
 }
 
-/**
- * Returns userId if authenticated OR has valid anon cookie.
- * Otherwise returns null.
- */
 async function getUserIdOrNull(): Promise<{ userId: string | null }> {
   const authed = await getUserIdFromNextAuth();
   if (authed) return { userId: authed };
@@ -108,10 +100,6 @@ async function getUserIdOrNull(): Promise<{ userId: string | null }> {
   return { userId: null };
 }
 
-/**
- * For POST: if no session and no anon cookie, create anon user + cookie
- * Always returns a non-null userId
- */
 async function getUserIdOrCreateAnonForWrite(): Promise<{
   userId: string;
   setCookie: string | null;
@@ -154,7 +142,6 @@ function parseTransactionType(input: unknown): TransactionType | null {
 }
 
 function parseMonth(month: string | null) {
-  // expects "YYYY-MM"
   if (!month) return { ok: true as const, range: null as null };
   if (!/^\d{4}-\d{2}$/.test(month)) {
     return { ok: false as const, error: 'Invalid "month". Use YYYY-MM.' };
@@ -176,10 +163,6 @@ function parseIdFromUrl(req: Request) {
 }
 
 function parseCategoryFilter(value: string | null) {
-  // categoryId can be:
-  // - null/absent => no filter
-  // - "uncategorized" => categoryId IS NULL
-  // - any other string => categoryId equals that string
   if (!value) return null;
   const v = value.trim();
   if (!v) return null;
@@ -187,18 +170,45 @@ function parseCategoryFilter(value: string | null) {
   return { equals: v };
 }
 
+function parsePaymentSourceFilter(value: string | null) {
+  if (!value) return null;
+  const v = value.trim();
+  if (!v || v === "all") return null;
+  if (v === "unassigned") return { isNull: true as const };
+  return { equals: v };
+}
+
+function parseLimit(value: string | null) {
+  if (!value) return { ok: true as const, value: null as number | null };
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    return {
+      ok: false as const,
+      error: 'Invalid "limit". Must be a positive integer.',
+    };
+  }
+  return { ok: true as const, value: Math.min(n, 200) };
+}
+
 async function assertCategoryBelongsToUser(userId: string, categoryId: string) {
   const exists = await prisma.category.findFirst({
     where: { id: categoryId, userId },
     select: { id: true },
   });
-
   return !!exists;
 }
 
-/**
- * Flags validation (Prisma enum-backed)
- */
+async function assertPaymentSourceBelongsToUser(
+  userId: string,
+  paymentSourceId: string
+) {
+  const exists = await prisma.paymentSource.findFirst({
+    where: { id: paymentSourceId, userId },
+    select: { id: true },
+  });
+  return !!exists;
+}
+
 const ALLOWED_FLAGS = new Set<TransactionFlag>(Object.values(TransactionFlag));
 
 function parseFlags(
@@ -206,10 +216,6 @@ function parseFlags(
 ):
   | { ok: true; value: TransactionFlag[] | undefined }
   | { ok: false; error: string } {
-  // Accept:
-  // - undefined => no-op (PATCH can omit)
-  // - null => clear (becomes [])
-  // - [] or ["WORTH_IT", ...]
   if (input === undefined) return { ok: true as const, value: undefined };
   if (input === null) return { ok: true as const, value: [] };
 
@@ -241,22 +247,29 @@ function parseFlags(
 
 export async function GET(req: Request) {
   const { userId } = await getUserIdOrNull();
-  if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
+
+  // ✅ Smooth UX: no user context yet => empty list
+  if (!userId) return json([]);
 
   const url = new URL(req.url);
 
-  // Month filter
   const parsedMonth = parseMonth(url.searchParams.get("month"));
   if (!parsedMonth.ok)
     return json({ error: parsedMonth.error }, { status: 400 });
 
-  // Optional search filter
   const q = (url.searchParams.get("q") ?? "").trim();
 
-  // Optional category filter
   const categoryFilter = parseCategoryFilter(
     url.searchParams.get("categoryId")
   );
+
+  const paymentSourceFilter = parsePaymentSourceFilter(
+    url.searchParams.get("paymentSourceId")
+  );
+
+  const parsedLimit = parseLimit(url.searchParams.get("limit"));
+  if (!parsedLimit.ok)
+    return json({ error: parsedLimit.error }, { status: 400 });
 
   const transactions = await prisma.transaction.findMany({
     where: {
@@ -277,9 +290,15 @@ export async function GET(req: Request) {
           ? { categoryId: null }
           : { categoryId: categoryFilter.equals }
         : {}),
+      ...(paymentSourceFilter
+        ? paymentSourceFilter.isNull
+          ? { paymentSourceId: null }
+          : { paymentSourceId: paymentSourceFilter.equals }
+        : {}),
     },
-    orderBy: { date: "desc" },
-    include: { category: true },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    take: parsedLimit.value ?? undefined,
+    include: { category: true, paymentSource: true },
   });
 
   return json(transactions);
@@ -302,10 +321,8 @@ export async function POST(req: Request) {
   if (!parsedFlags.ok)
     return json({ error: parsedFlags.error }, { status: 400 });
 
-  // POST always sets flags (default empty)
   const flags: TransactionFlag[] = parsedFlags.value ?? [];
 
-  // allow null/undefined/"" to mean "no category"
   const categoryIdRaw = body?.categoryId;
   const categoryId =
     categoryIdRaw === null ||
@@ -314,10 +331,16 @@ export async function POST(req: Request) {
       ? null
       : String(categoryIdRaw);
 
+  const paymentSourceIdRaw = body?.paymentSourceId;
+  const paymentSourceId =
+    paymentSourceIdRaw === null ||
+    paymentSourceIdRaw === undefined ||
+    paymentSourceIdRaw === ""
+      ? null
+      : String(paymentSourceIdRaw);
+
   const date = parseLocalDateOnly(body?.date);
-  if (!date) {
-    return json({ error: "Invalid date" }, { status: 400 });
-  }
+  if (!date) return json({ error: "Invalid date" }, { status: 400 });
 
   const amountCentsRaw = body?.amountCents;
   const amountCentsInput =
@@ -328,27 +351,26 @@ export async function POST(req: Request) {
   if (!Number.isInteger(amountCentsInput)) {
     return json({ error: "amountCents must be an integer" }, { status: 400 });
   }
-
   if (Math.abs(amountCentsInput) > 10_000_000_00) {
     return json({ error: "amountCents is out of bounds" }, { status: 400 });
   }
-
   if (amountCentsInput === 0) {
     return json({ error: "amountCents cannot be 0" }, { status: 400 });
   }
-
   if (!description) {
     return json({ error: "description is required" }, { status: 400 });
   }
 
-  // Validate category belongs to user (if provided)
   if (categoryId) {
     const ok = await assertCategoryBelongsToUser(userId, categoryId);
     if (!ok) return json({ error: "Invalid categoryId" }, { status: 400 });
   }
 
-  // Accept explicit type, otherwise infer from sign for backward compatibility.
-  // Convention: negative => EXPENSE, positive => INCOME
+  if (paymentSourceId) {
+    const ok = await assertPaymentSourceBelongsToUser(userId, paymentSourceId);
+    if (!ok) return json({ error: "Invalid paymentSourceId" }, { status: 400 });
+  }
+
   const typeFromBody = parseTransactionType(body?.type);
   if (body?.type !== undefined && !typeFromBody) {
     return json(
@@ -361,7 +383,6 @@ export async function POST(req: Request) {
     amountCentsInput < 0 ? "EXPENSE" : "INCOME";
   const type: TransactionType = typeFromBody ?? inferredType;
 
-  // Canonical: store positive cents in DB
   const amountCents = Math.abs(amountCentsInput);
 
   const created = await prisma.transaction.create({
@@ -374,8 +395,9 @@ export async function POST(req: Request) {
       notes,
       flags,
       categoryId,
+      paymentSourceId,
     },
-    include: { category: true },
+    include: { category: true, paymentSource: true },
   });
 
   return json(created, {
@@ -384,11 +406,6 @@ export async function POST(req: Request) {
   });
 }
 
-/**
- * PATCH /api/finance/transactions?id=TRANSACTION_ID
- * Body supports partial updates:
- * { description?, amountCents?, type?, date?, notes?, flags?, categoryId? (string|null) }
- */
 export async function PATCH(req: Request) {
   const { userId } = await getUserIdOrNull();
   if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
@@ -403,10 +420,9 @@ export async function PATCH(req: Request) {
     return json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  // Ensure the transaction belongs to this user
   const existing = await prisma.transaction.findFirst({
     where: { id, userId },
-    select: { id: true, type: true, amountCents: true },
+    select: { id: true },
   });
 
   if (!existing) return json({ error: "Not found" }, { status: 404 });
@@ -420,7 +436,6 @@ export async function PATCH(req: Request) {
     data.description = description;
   }
 
-  // type can be updated
   if (body?.type !== undefined) {
     const t = parseTransactionType(body.type);
     if (!t)
@@ -445,7 +460,6 @@ export async function PATCH(req: Request) {
       return json({ error: "amountCents cannot be 0" }, { status: 400 });
     }
 
-    // If client sends signed amount and no explicit type, infer type from sign
     if (body?.type === undefined) {
       data.type = amountCentsInput < 0 ? "EXPENSE" : "INCOME";
     }
@@ -454,9 +468,7 @@ export async function PATCH(req: Request) {
 
   if (body?.date !== undefined) {
     const date = parseLocalDateOnly(body?.date);
-    if (!date) {
-      return json({ error: "Invalid date" }, { status: 400 });
-    }
+    if (!date) return json({ error: "Invalid date" }, { status: 400 });
     data.date = date;
   }
 
@@ -484,6 +496,23 @@ export async function PATCH(req: Request) {
     data.categoryId = categoryId;
   }
 
+  if (body?.paymentSourceId !== undefined) {
+    const raw = body.paymentSourceId;
+    const paymentSourceId =
+      raw === null || raw === "" || raw === undefined ? null : String(raw);
+
+    if (paymentSourceId) {
+      const ok = await assertPaymentSourceBelongsToUser(
+        userId,
+        paymentSourceId
+      );
+      if (!ok)
+        return json({ error: "Invalid paymentSourceId" }, { status: 400 });
+    }
+
+    data.paymentSourceId = paymentSourceId;
+  }
+
   if (Object.keys(data).length === 0) {
     return json({ error: "No valid fields to update" }, { status: 400 });
   }
@@ -491,15 +520,12 @@ export async function PATCH(req: Request) {
   const updated = await prisma.transaction.update({
     where: { id },
     data,
-    include: { category: true },
+    include: { category: true, paymentSource: true },
   });
 
   return json(updated);
 }
 
-/**
- * DELETE /api/finance/transactions?id=TRANSACTION_ID
- */
 export async function DELETE(req: Request) {
   const { userId } = await getUserIdOrNull();
   if (!userId) return json({ error: "Unauthorized" }, { status: 401 });
@@ -507,7 +533,6 @@ export async function DELETE(req: Request) {
   const id = parseIdFromUrl(req);
   if (!id) return json({ error: 'Missing "id" query param' }, { status: 400 });
 
-  // Only delete if it belongs to the user
   const existing = await prisma.transaction.findFirst({
     where: { id, userId },
     select: { id: true },

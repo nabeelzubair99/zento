@@ -13,7 +13,7 @@ model User {
   image         String?
   emailVerified DateTime?
 
-  // ✅ New: anonymous user support
+  // ✅ anonymous user support
   isAnonymous   Boolean  @default(false)
 
   createdAt DateTime @default(now())
@@ -24,8 +24,18 @@ model User {
   sessions      Session[]
   transactions  Transaction[]
 
-  // ✅ New relation
+  // ✅ anonymous sessions
   anonSessions  AnonSession[]
+
+  // ✅ Payment methods / sources (bank/card/cash)
+  paymentSources PaymentSource[]
+
+  // ✅ User preference: default filter on Transactions page
+  // null = "All accounts"
+  defaultTransactionsPaymentSourceId String?
+  defaultTransactionsPaymentSource   PaymentSource? @relation("UserDefaultPaymentSource", fields: [defaultTransactionsPaymentSourceId], references: [id], onDelete: SetNull)
+
+  @@index([defaultTransactionsPaymentSourceId])
 }
 
 model AnonSession {
@@ -49,11 +59,42 @@ model Category {
   id           String        @id @default(cuid())
   userId       String
   name         String
+
+  // ✅ supports reorder in Profile
+  sortOrder    Int           @default(0)
+
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
 
+  @@unique([userId, name])
+  @@index([userId, sortOrder])
+}
+
+enum PaymentSourceType {
+  BANK
+  CARD
+  CASH
+}
+
+model PaymentSource {
+  id        String            @id @default(cuid())
+  userId    String
+  name      String
+  type      PaymentSourceType
+
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  // Users that have this as their default Transactions filter
+  defaultForUsers User[] @relation("UserDefaultPaymentSource")
+
+  @@index([userId])
   @@unique([userId, name])
 }
 
@@ -75,14 +116,20 @@ model Transaction {
   flags       TransactionFlag[] @default([])
 
   categoryId  String?
+
+  // ✅ optional payment source assignment (users can assign later)
+  paymentSourceId String?
+
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  category    Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentSource PaymentSource? @relation(fields: [paymentSourceId], references: [id], onDelete: SetNull)
 
   @@index([userId, date])
   @@index([userId, categoryId])
+  @@index([userId, paymentSourceId])
 }
 
 enum TransactionFlag {

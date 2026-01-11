@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 
 type NavItem = {
   href: string;
@@ -76,6 +76,27 @@ function IconFilter({ active }: { active: boolean }) {
   );
 }
 
+function IconUser({ active }: { active: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      style={{ opacity: active ? 1 : 0.8 }}
+    >
+      <path d="M20 21a8 8 0 0 0-16 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function IconLogout() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -98,16 +119,44 @@ function IconLogout() {
   );
 }
 
+function IconLogin() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M14 7h4a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-4"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path d="M10 12h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10 12l3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M10 12l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M11 17H8.5C6.5 17 5 15.5 5 13.5v-3C5 8.5 6.5 7 8.5 7H11"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function NavBar({
   homeHref,
   dashboardHref = "/dashboard",
   reportsHref,
+  profileHref = "/profile",
+  signInHref = "/api/auth/signin",
 }: {
   homeHref: string;
   reportsHref: string;
   dashboardHref?: string;
+  profileHref?: string;
+  signInHref?: string;
 }) {
   const pathname = usePathname();
+  const { status } = useSession();
+  const isAuthed = status === "authenticated";
 
   const items: NavItem[] = [
     {
@@ -129,11 +178,28 @@ export function NavBar({
       kind: "link",
     },
     {
-      href: "#logout",
-      label: "Logout",
-      icon: <IconLogout />,
-      kind: "logout",
+      href: profileHref,
+      label: "Profile",
+      icon: <IconUser active={isActivePath(pathname, profileHref)} />,
+      kind: "link",
     },
+    ...(isAuthed
+      ? [
+          {
+            href: "#logout",
+            label: "Logout",
+            icon: <IconLogout />,
+            kind: "logout" as const,
+          },
+        ]
+      : [
+          {
+            href: signInHref,
+            label: "Sign in",
+            icon: <IconLogin />,
+            kind: "link" as const,
+          },
+        ]),
   ];
 
   return (
@@ -218,11 +284,7 @@ export function NavBar({
           }
 
           return (
-            <Link
-              key={it.label}
-              href={it.href}
-              className={`navMobileItem ${active ? "isActive" : ""}`}
-            >
+            <Link key={it.label} href={it.href} className={`navMobileItem ${active ? "isActive" : ""}`}>
               {it.icon}
               <span>{it.label}</span>
             </Link>
@@ -248,7 +310,7 @@ export function NavBar({
             z-index: 50;
 
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 8px;
 
             padding: 10px;
